@@ -1,6 +1,14 @@
 export const routes = {
-  "/": (app: HTMLElement) => (app.innerHTML = `<h1>Home</h1><a href="#/train/weka">Train Weka</a>`),
+  "/": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-home"));
+  },
   "/train/weka": (app: HTMLElement) => {
     app.replaceChildren(document.createElement("page-train-weka"));
+  },
+  "/register": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-register"));
+  },
+  "/login": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-login"));
   },
 };

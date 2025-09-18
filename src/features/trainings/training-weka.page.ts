@@ -1,6 +1,7 @@
 import { fetchAlgorithms } from "../algorithms/api";
 import { startTraining } from "../trainings/api";
 import { getTaskStatus } from "../tasks/api";
+import styles from './styles/training-weka.css?raw';
 
 export class PageTrainWeka extends HTMLElement {
 
@@ -19,71 +20,78 @@ export class PageTrainWeka extends HTMLElement {
 
     this.shadowRoot!.innerHTML = `
 
-        <style> 
-            .wrap {
-                max-width: 600px;
-                margin: 20px auto;
-                font-family: sans-serif;
-            }
-            
-            .row {
-                display: flex;
-                flex-direction: column;
-                margin-bottom: 16px;
-            }
+        <style>${styles}</style>
 
-            label {
-                font-weight: 600;
-                margin-bottom: 6px;
-            }
+        <main class="app">
+          <section class="panel">
+            <h1>Train (Weka)</h1>
 
-            input, select {
-                padding: 8px;
-                font-size: 14px;
-            }
-
-            .btn {
-                background: var(--primary, #2563eb);
-                color: white;
-                border: none;
-                border-radius: 6px;
-                cursor: pointer;
-            }
-
-        </style>
-        <div class="wrap">
-            <form id="trainForm">
-                <div class="row">
-                    <label for="file">Upload Dataset</label>
-                    <input type="file" id="file" name="file" accept=".csv"> 
-                </div>  
-                
-                <div class="row">
-                    <label for="algorithmId">Algorithm - Weka</label>
-                    <select id="algorithmId" name="algorithmId">
-                        <option value="" disabled selected>Loading...</option>
-                    </select>
+            <form id="trainForm" novalidate>
+              <div class="field">
+                <label for="dataset">Upload Dataset</label>
+                <div class="filebox" id="fileBox">
+                  <input type="file" id="dataset" name="file" accept=".csv" />
+                  <span class="filebox__label" id="fileName">No file selected.</span>
                 </div>
+              </div>
 
-                <div class="row">
-                    <label for="options">Algorithm Options</label>
-                    <input id="options" type="text" placeholder='ex. C 0.5 M 2' />
+              <div class="field">
+                <label for="algorithm">Algorithm - Weka</label>
+                <select id="algorithm" name="algorithmId" required>
+                </select>
+              </div>
 
-                </div>
+              <div class="field">
+                <label for="options">Algorithm Options</label>
+                <input type="text" id="options" name="options" placeholder="ex. -C 0.5 -M 2" />
+              </div>
 
-                <div class="row"> 
-                    <button type="submit" class="btn">Start</button>                     
-                </div>
+              <div class="field">
+                <label for="attrDataset">Dataset Attributes</label>
+                <input type="text" id="attrDataset" name="basicCharacteristicsColumns" placeholder="Optional ex. attr1, attr2" />
+              </div>
+
+              <div class="field">
+                <label for="classDataset">Class Attribute</label>
+                <input type="text" id="classDataset" name="targetClassColumn" placeholder="Optional ex. class" />
+              </div>
+
+              <button id="startBtn" class="btn" type="submit" disabled>Start</button>
             </form>
-        </div>
+          </section>
+        </main>
     `;
 
+    const fileInput = this.shadowRoot!.querySelector<HTMLInputElement>('#dataset');
+    const fileNameLabel = this.shadowRoot!.querySelector<HTMLElement>('#fileName');
+    const startButton = this.shadowRoot!.querySelector<HTMLButtonElement>('#startBtn');
+    const algorithmSelect = this.shadowRoot!.querySelector<HTMLSelectElement>('#algorithm');
+    const fileBox = this.shadowRoot!.querySelector<HTMLElement>('#fileBox')!;
+
+    const updateFormState = () => {
+      const file = fileInput?.files?.[0] ?? null;
+      const hasFile = Boolean(file);
+
+      if (fileNameLabel) {
+        fileNameLabel.textContent = hasFile && file ? file.name : 'No file selected.';
+      }
+
+      if (startButton) {
+        const hasAlgorithm = Boolean(algorithmSelect?.value);
+        startButton.disabled = !(hasFile && hasAlgorithm);
+      }
+    };
+
+    fileInput?.addEventListener('change', updateFormState);
+    algorithmSelect?.addEventListener('change', updateFormState);
+    fileBox?.addEventListener('click', () => fileInput?.click());
+    updateFormState();
     this.form = this.shadowRoot!.querySelector('#trainForm') as HTMLFormElement;
     this.loadAlgorithms();
   }
 
 private async loadAlgorithms() {
-  const select = this.shadowRoot!.querySelector('#algorithmId') as HTMLSelectElement;
+  const select = this.shadowRoot!.querySelector('#algorithm') as HTMLSelectElement;
   if (!select) return;
 
   try {
@@ -116,12 +124,31 @@ private async loadAlgorithms() {
 private async handleSubmit(e: Event) {
   e.preventDefault();
 
-  const fileInput = this.shadowRoot!.querySelector<HTMLInputElement>('#file');
-  const algoSelect = this.shadowRoot!.querySelector<HTMLSelectElement>('#algorithmId');
+  const fileInput = this.shadowRoot!.querySelector<HTMLInputElement>('#dataset');
+  const algoSelect = this.shadowRoot!.querySelector<HTMLSelectElement>('#algorithm');
   const algoOptions = this.shadowRoot!.querySelector<HTMLInputElement>('#options');
+  const attrDatasetInput = this.shadowRoot!.querySelector<HTMLInputElement>('#attrDataset');
+  const classDatasetInput = this.shadowRoot!.querySelector<HTMLInputElement>('#classDataset');
 
   if (!fileInput?.files?.length || !algoSelect?.value) {
     alert('Please select both a dataset file and an algorithm');
+    return;
+  }
+
+  if (!/^\d+$/.test(algoSelect.value)) {
+    alert('Algorithm must be a numeric id');
+    return;
+  }
+
+  const basicCols = attrDatasetInput?.value.trim() ?? '';
+  if (basicCols && !/^(\d+)(,\d+)*$/.test(basicCols)) {
+    alert('Attributes must be numbers separated by commas (e.g. 1,2,3)');
+    return;
+  }
+
+  const targetClass = classDatasetInput?.value.trim() ?? '';
+  if (targetClass && !/^\d+$/.test(targetClass)) {
+    alert('Class column must be a number (e.g. 4)');
     return;
   }
 
@@ -129,6 +156,8 @@ private async handleSubmit(e: Event) {
   formData.append('file', fileInput.files[0]);
   formData.append('algorithmId', algoSelect.value);
   formData.append('options', algoOptions?.value ?? '');
+  formData.append('basicCharacteristicsColumns', basicCols);
+  formData.append('targetClassColumn', targetClass);
 
   const token = localStorage.getItem("jwt");
 

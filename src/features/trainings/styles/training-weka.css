@@ -1,0 +1,113 @@
+    :root{
+    --bg: linear-gradient(135deg,#a6b5d8, #8aa1c7 40%, #7e93c0);
+    --panel-bg: color-mix(in oklab, white 80%, transparent);
+    --text: #0f172a;
+    --muted: #475569;
+    --ring: #3b82f6;
+    --ok: #2563eb;
+    --ok-ink: #fff;
+    --radius: 16px;
+    --shadow: 0 10px 30px rgba(2,6,23,.15);
+    }
+
+    @media (prefers-color-scheme: dark){
+    :root{
+        --panel-bg: color-mix(in oklab, #0b1220 80%, transparent);
+        --text: #e5e7eb;
+        --muted: #9ca3af;
+        --ring: #60a5fa;
+        --ok: #3b82f6;
+        --ok-ink: #0b1220;
+    }
+    }
+
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+    margin:0;
+    font: 500 16px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+    color: var(--text);
+    background: var(--bg) fixed;
+    }
+
+    .app{
+    min-height:100%;
+    display:grid;
+    place-items:center;
+    padding:24px;
+    }
+
+    .panel{
+    width: min(720px, 90vw);
+    background: var(--panel-bg);
+    backdrop-filter: blur(10px);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 28px 28px 22px;
+    border: 1px solid rgba(255,255,255,.35);
+    }
+
+    h1{
+    margin: 0 0 6px;
+    font-size: 22px;
+    letter-spacing:.2px;
+    }
+
+    form{ display:grid; gap:16px; }
+
+    .field{ display:grid; gap:6px; }
+    label{ font-weight:700; font-size:14px; }
+    .hint{ color: var(--muted); font-size:12px; }
+
+    input[type="text"], select{
+    width:100%;
+    height:42px;
+    border-radius: 12px;
+    border: 1px solid #cbd5e1;
+    background: white;
+    padding: 0 12px;
+    outline: none;
+    transition: box-shadow .2s, border-color .2s, transform .06s;
+    }
+    @media (prefers-color-scheme: dark){
+    input[type="text"], select{
+        background: #0f172a;
+        border-color: #334155;
+        color: var(--text);
+    }
+    }
+    input[type="text"]:focus, select:focus{
+    border-color: var(--ring);
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    .filebox{
+    display:flex; align-items:center; gap:10px;
+    height:44px; padding:0 10px;
+    border:1px dashed #94a3b8; border-radius:12px; background: rgba(255,255,255,.6);
+    }
+    .filebox:hover{ border-color: var(--ring); }
+    .filebox input[type="file"]{ display:none; }
+    .filebox__label{
+    display:inline-flex; align-items:center; gap:10px;
+    cursor:pointer; user-select:none;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    width:100%;
+    }
+    .filebox__label::before{
+    content:"Browse…";
+    display:inline-flex; align-items:center; justify-content:center;
+    min-width:92px; height:32px; padding:0 10px; border-radius:10px;
+    background: var(--ok); color: var(--ok-ink); font-weight:700;
+    }
+
+    .btn{
+    height:44px; border:0; border-radius:14px;
+    background: var(--ok); color: var(--ok-ink); font-weight:800;
+    letter-spacing:.3px;
+    box-shadow: 0 8px 18px rgba(37,99,235,.35);
+    cursor:pointer;
+    transition: transform .06s ease, filter .2s ease, opacity .2s;
+    }
+    .btn:disabled{ opacity:.5; cursor:not-allowed; filter:grayscale(.2); box-shadow:none; }
+    .btn:active{ transform: translateY(1px); }
