@@ -2,6 +2,9 @@ export const routes = {
   "/": (app: HTMLElement) => {
     app.replaceChildren(document.createElement("page-home"));
   },
+  "/trainings": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-trainings"));
+  },
   "/train/weka": (app: HTMLElement) => {
     app.replaceChildren(document.createElement("page-train-weka"));
   },
@@ -10,5 +13,17 @@ export const routes = {
   },
   "/login": (app: HTMLElement) => {
     app.replaceChildren(document.createElement("page-login"));
+  },
+  "/reset-password": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-reset-pass"));
+  },
+  "/models": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-models"));
+  },
+  "/executions": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-executions"));
+  },
+  "/categories": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-categories"));
   },
 };

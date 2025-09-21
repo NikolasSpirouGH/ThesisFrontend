@@ -1,5 +1,5 @@
 import styles from './styles/login.css?raw';
-import { setToken, setUser } from '../core/auth.store';
+import { setToken, setUser } from '../../core/auth.store';
 
 type LoginResponse =
   | { data?: { token?: string; user?: any }; dataHeader?: { token?: string; user?: any }; errorCode?: string | null; message?: string | null }
@@ -71,6 +71,7 @@ export class PageLogin extends HTMLElement {
     const toggle = this.q<HTMLButtonElement>('.toggle');
     const pwd = this.q<HTMLInputElement>('input[name="password"]');
     const loginBtn = this.q<HTMLButtonElement>('#loginBtn');
+    const forgot = this.q<HTMLAnchorElement>('#forgot');
 
     toggle.addEventListener('click', () => {
       pwd.type = pwd.type === 'password' ? 'text' : 'password';
@@ -81,13 +82,65 @@ export class PageLogin extends HTMLElement {
       (window as any).navigate ? (window as any).navigate('register') : (location.hash = '#/register');
     });
 
-    this.q<HTMLAnchorElement>('#forgot').addEventListener('click', (e) => {
-      e.preventDefault();
-      // route to forgot page if you create one
-      this.toast('Password reset flow not implemented', false);
-    });
+    forgot.addEventListener('click', (e) => this.onForgot(e, forgot));
 
     form.addEventListener('submit', (e) => this.onSubmit(e, loginBtn));
+  }
+
+  private async onForgot(e: Event, link: HTMLAnchorElement) {
+    e.preventDefault();
+
+    const email = prompt('Enter your account email to reset password:')?.trim();
+    if (!email) {
+      return;
+    }
+
+    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!EMAIL_RE.test(email)) {
+      this.toast('Please enter a valid email address', false);
+      return;
+    }
+
+    link.dataset.loading = 'true';
+    link.setAttribute('aria-busy', 'true');
+
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+
+      const raw = await res.text();
+      let message = raw || '';
+      try {
+        if (raw) {
+          const json = JSON.parse(raw);
+          message = json?.message || json?.data?.message || message;
+        }
+      } catch { /* ignore non-JSON */ }
+
+      const normalized = message?.toLowerCase?.() ?? '';
+      const alreadyRequested = !res.ok && normalized.includes('already been requested');
+
+      if (res.ok || alreadyRequested) {
+        const info = message || (alreadyRequested
+          ? 'A password reset has already been requested. Please check your email.'
+          : 'If the email exists, a reset link was sent.');
+        this.toast(info, true);
+      } else {
+        // Handle unauthorized or validation errors gracefully
+        const fallback = res.status === 401 || res.status === 403
+          ? 'Not authorized to request reset.'
+          : 'Password reset request failed';
+        this.toast(message || fallback, false);
+      }
+    } catch (err: any) {
+      this.toast(err?.message ?? 'Network error', false);
+    } finally {
+      delete link.dataset.loading;
+      link.removeAttribute('aria-busy');
+    }
   }
 
   private async onSubmit(e: Event, loginBtn: HTMLButtonElement) {
@@ -129,9 +182,10 @@ export class PageLogin extends HTMLElement {
 
       // Accept multiple token shapes & fall back to headers
       const token = this.resolveToken(res, json, raw);
-      const user  = (json as any)?.data?.user ?? (json as any)?.dataHeader?.user ?? (json as any)?.user ?? null;
+      const user  = this.resolveUser(json);
 
       if (!token) {
+        console.error('Login response missing token', { raw, json });
         this.toast('Missing token in response', false);
         return;
       }
@@ -144,7 +198,7 @@ export class PageLogin extends HTMLElement {
 
       // Navigate to app home or dashboard
       setTimeout(() => {
-        (window as any).navigate ? (window as any).navigate('home') : (location.hash = '#/home');
+        (window as any).navigate ? (window as any).navigate('home') : (location.hash = '#/');
       }, 600);
 
     } catch (err: any) {
@@ -156,20 +210,18 @@ export class PageLogin extends HTMLElement {
   }
 
   private resolveToken(res: Response, payload: LoginResponse | null, raw: string | null): string | null {
-    const candidateValues = [
-      (payload as any)?.data?.token,
-      (payload as any)?.dataHeader?.token,
-      (payload as any)?.token,
-      (payload as any)?.data?.jwt,
-      (payload as any)?.jwt,
-      (payload as any)?.accessToken,
-      (payload as any)?.access_token,
-      (payload as any)?.data?.accessToken,
-    ];
+    const variants = this.collectPayloadVariants(payload);
+    const keys = ['token', 'jwt', 'accessToken', 'access_token'];
 
-    for (const value of candidateValues) {
-      if (typeof value === 'string' && value.trim()) {
-        return value.trim();
+    for (const variant of variants) {
+      for (const key of keys) {
+        const candidate = (variant as any)?.[key];
+        if (typeof candidate === 'string' && candidate.trim()) {
+          const cleaned = candidate.trim().replace(/^Bearer\s+/i, '').trim();
+          if (cleaned) {
+            return cleaned;
+          }
+        }
       }
     }
 
@@ -194,6 +246,44 @@ export class PageLogin extends HTMLElement {
     }
 
     return null;
+  }
+
+  private resolveUser(payload: LoginResponse | null) {
+    const variants = this.collectPayloadVariants(payload);
+    for (const variant of variants) {
+      const candidate = (variant as any)?.user;
+      if (candidate != null) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  private collectPayloadVariants(payload: LoginResponse | null): any[] {
+    if (!payload || typeof payload !== 'object') {
+      return [];
+    }
+
+    const variants: any[] = [];
+    const push = (candidate: unknown) => {
+      if (!candidate || typeof candidate !== 'object') return;
+      if (!variants.includes(candidate)) {
+        variants.push(candidate);
+      }
+      if (Array.isArray(candidate)) {
+        candidate.forEach(push);
+      }
+    };
+
+    push(payload as any);
+    const header = (payload as any)?.dataHeader;
+    const data = (payload as any)?.data;
+    push(header);
+    push(data);
+    push((header as any)?.data);
+    push((data as any)?.data);
+
+    return variants;
   }
 
   // helpers
