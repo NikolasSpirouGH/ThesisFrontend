@@ -115,7 +115,6 @@ export class PageRegister extends HTMLElement {
     const form = this.q<HTMLFormElement>('.form');
     const toLogin = this.q<HTMLAnchorElement>('#toLogin');
     const submitBtn = this.q<HTMLButtonElement>('#submitBtn');
-    const toast = this.q<HTMLDivElement>('.toast');
 
     toLogin.addEventListener('click', (e) => {
       e.preventDefault();

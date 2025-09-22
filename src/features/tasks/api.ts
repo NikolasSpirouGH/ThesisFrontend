@@ -1,10 +1,14 @@
 
+import { handleUnauthorized } from "../../core/http";
+
 export async function getTaskStatus(trackingId: string, token?: string) {
   const res = await fetch(`/api/tasks/${trackingId}`, {
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {})
     }
   });
+
+  handleUnauthorized(res);
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');

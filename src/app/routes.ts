@@ -8,6 +8,15 @@ export const routes = {
   "/train/weka": (app: HTMLElement) => {
     app.replaceChildren(document.createElement("page-train-weka"));
   },
+  "/train/custom": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-train-custom"));
+  },
+  "/train/retrain": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-train-retrain"));
+  },
+  "/algorithms": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-algorithms"));
+  },
   "/register": (app: HTMLElement) => {
     app.replaceChildren(document.createElement("page-register"));
   },

@@ -80,7 +80,6 @@ export class PageHome extends HTMLElement {
               <span class="chip chip--muted">${roleLabel}</span>
             </div>
             <div class="hero__actions">
-              <button class="btn primary" type="button" data-route="/train/weka">Start training</button>
               <button class="btn ghost" type="button" data-action="logout">Logout</button>
             </div>
           </div>
@@ -208,6 +207,7 @@ export class PageHome extends HTMLElement {
       { title: "Models", description: "Browse trained models and prepare deployments.", route: "/models" },
       { title: "Executions", description: "Inspect model execution history and runtime metrics.", route: "/executions" },
       { title: "Datasets & Categories", description: "Organise datasets and manage their visibility.", route: "/categories" },
+      { title: "Algorithms", description: "Manage predefined and custom training algorithms.", route: "/algorithms" },
     ];
 
     if (scope === "admin") {
