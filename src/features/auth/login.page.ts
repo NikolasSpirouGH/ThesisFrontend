@@ -28,7 +28,7 @@ export class PageLogin extends HTMLElement {
           <form class="form" novalidate>
             <div class="field">
               <label>Username</label>
-              <input class="input" name="username" type="text" placeholder="your.username" autocomplete="username" />
+              <input class="input" name="username" type="text" placeholder="username" autocomplete="username" />
               <div class="error"></div>
             </div>
 

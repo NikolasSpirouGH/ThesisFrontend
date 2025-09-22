@@ -7,6 +7,7 @@ import "../features/trainings/training-custom.page";
 import "../features/trainings/training-retrain.page";
 import "../features/trainings/trainings.page";
 import "../features/algorithms/algorithms.page";
+import "../features/algorithms/create-algorithm.page";
 import "../features/auth/register.page";
 import "../features/auth/login.page";
 import "../features/auth/reset-pass.page";

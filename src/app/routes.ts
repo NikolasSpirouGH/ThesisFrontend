@@ -17,6 +17,9 @@ export const routes = {
   "/algorithms": (app: HTMLElement) => {
     app.replaceChildren(document.createElement("page-algorithms"));
   },
+  "/algorithms/create": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-create-algorithm"));
+  },
   "/register": (app: HTMLElement) => {
     app.replaceChildren(document.createElement("page-register"));
   },
