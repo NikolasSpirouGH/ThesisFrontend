@@ -1,4 +1,5 @@
 import styles from './styles/reset-pass.css?raw';
+import { handleNetworkError } from '../../core/http';
 
 const PASS_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/;
 
@@ -151,6 +152,12 @@ export class PageResetPass extends HTMLElement {
         this.toast(message || fallback, false);
       }
     } catch (err: any) {
+      try {
+        handleNetworkError(err);
+      } catch (networkErr) {
+        // Network error detected and handled, no need to show toast as user is redirected
+        return;
+      }
       this.toast(err?.message ?? 'Network error', false);
     } finally {
       btn.disabled = false;

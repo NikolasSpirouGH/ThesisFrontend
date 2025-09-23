@@ -1,5 +1,6 @@
 import styles from './styles/login.css?raw';
 import { setToken, setUser } from '../../core/auth.store';
+import { handleNetworkError } from '../../core/http';
 
 type LoginResponse =
   | { data?: { token?: string; user?: any }; dataHeader?: { token?: string; user?: any }; errorCode?: string | null; message?: string | null }
@@ -136,6 +137,12 @@ export class PageLogin extends HTMLElement {
         this.toast(message || fallback, false);
       }
     } catch (err: any) {
+      try {
+        handleNetworkError(err);
+      } catch (networkErr) {
+        // Network error detected and handled, no need to show toast as user is redirected
+        return;
+      }
       this.toast(err?.message ?? 'Network error', false);
     } finally {
       delete link.dataset.loading;
@@ -202,6 +209,12 @@ export class PageLogin extends HTMLElement {
       }, 600);
 
     } catch (err: any) {
+      try {
+        handleNetworkError(err);
+      } catch (networkErr) {
+        // Network error detected and handled, no need to show toast as user is redirected
+        return;
+      }
       this.toast(err?.message ?? 'Network error', false);
     } finally {
       loginBtn.disabled = false;

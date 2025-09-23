@@ -1,4 +1,5 @@
 import styles from './styles/register.css?raw';
+import { handleNetworkError } from '../../core/http';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASS_RE  = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/;
@@ -161,6 +162,12 @@ export class PageRegister extends HTMLElement {
           this.showToast(msg || 'Registration failed', false);
         }
       } catch (err: any) {
+        try {
+          handleNetworkError(err);
+        } catch (networkErr) {
+          // Network error detected and handled, no need to show toast as user is redirected
+          return;
+        }
         this.showToast(err?.message ?? 'Network error', false);
       } finally {
         submitBtn.disabled = false;

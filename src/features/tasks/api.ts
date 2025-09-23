@@ -1,18 +1,23 @@
 
-import { handleUnauthorized } from "../../core/http";
+import { handleUnauthorized, handleNetworkError } from "../../core/http";
 
 export async function getTaskStatus(trackingId: string, token?: string) {
-  const res = await fetch(`/api/tasks/${trackingId}`, {
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
+  try {
+    const res = await fetch(`/api/tasks/${trackingId}`, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      }
+    });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Status ${res.status}: ${text || res.statusText}`);
     }
-  });
-
-  handleUnauthorized(res);
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Status ${res.status}: ${text || res.statusText}`);
+    return res.json(); // επιστρέφει π.χ. { status: "RUNNING" }
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
   }
-  return res.json(); // επιστρέφει π.χ. { status: "RUNNING" }
 }
