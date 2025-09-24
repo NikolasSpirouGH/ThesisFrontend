@@ -231,3 +231,55 @@ export async function fetchRetrainModelDetails(modelId: number, token?: string):
     throw error;
   }
 }
+
+export type CustomTrainingRequest = {
+  algorithmId: number;
+  datasetFile: File;
+  parametersFile?: File;
+  basicAttributesColumns?: string;
+  targetColumn?: string;
+};
+
+export async function startCustomTraining(request: CustomTrainingRequest, token?: string): Promise<{ taskId: string }> {
+  try {
+    const formData = new FormData();
+    formData.append("algorithmId", request.algorithmId.toString());
+    formData.append("datasetFile", request.datasetFile);
+
+    if (request.parametersFile) {
+      formData.append("parametersFile", request.parametersFile);
+    }
+
+    if (request.basicAttributesColumns) {
+      formData.append("basicAttributesColumns", request.basicAttributesColumns);
+    }
+
+    if (request.targetColumn) {
+      formData.append("targetColumn", request.targetColumn);
+    }
+
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const res = await fetch("/api/train/custom", {
+      method: "POST",
+      headers,
+      body: formData
+    });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      const message = await normaliseError(res, "Failed to start custom training");
+      throw new Error(`${res.status}: ${message}`);
+    }
+
+    const response = await res.json();
+    return { taskId: response.dataHeader || response.data };
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
+  }
+}
