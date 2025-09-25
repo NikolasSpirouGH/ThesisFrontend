@@ -122,6 +122,101 @@
   font-size: 0.85rem;
 }
 
+.helper-box {
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  border-radius: 12px;
+  padding: 1.2rem;
+  margin-bottom: 1rem;
+}
+
+.helper-box p {
+  margin: 0 0 0.75rem 0;
+  color: rgba(191, 219, 254, 0.9);
+  font-weight: 500;
+}
+
+.helper-box ul {
+  margin: 0.5rem 0 1rem 1.2rem;
+  padding: 0;
+  color: rgba(226, 232, 240, 0.8);
+}
+
+.helper-box li {
+  margin-bottom: 0.4rem;
+}
+
+.helper-box li:last-child {
+  margin-bottom: 0;
+}
+
+.helper-box code {
+  background: rgba(15, 23, 42, 0.6);
+  color: #a7f3d0;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  font-family: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace;
+  font-size: 0.85em;
+}
+
+.example-section {
+  margin-top: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.example-section summary {
+  padding: 0.8rem 1rem;
+  cursor: pointer;
+  font-weight: 500;
+  color: rgba(191, 219, 254, 0.9);
+  border-radius: 8px;
+  transition: background-color 0.2s ease;
+}
+
+.example-section summary:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.example-section pre {
+  margin: 0;
+  padding: 1.2rem;
+  overflow-x: auto;
+  background: rgba(7, 11, 22, 0.8);
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.example-section code {
+  font-family: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #e2e8f0;
+}
+
+.example-section[open] summary {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 8px 8px 0 0;
+}
+
+.example-section.small {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.example-section.small summary {
+  padding: 0.6rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+.example-section.small pre {
+  padding: 1rem;
+}
+
+.example-section.small code {
+  font-size: 0.78rem;
+}
+
 input,
 select,
 textarea {

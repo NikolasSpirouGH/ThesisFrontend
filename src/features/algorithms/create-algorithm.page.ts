@@ -54,8 +54,8 @@ class PageCreateAlgorithm extends HTMLElement {
         <header class="hero">
           <div class="hero__content">
             <p class="hero__eyebrow">Custom algorithm</p>
-            <h1>Upload a Docker-based algorithm</h1>
-            <p>Provide metadata, default parameters, and either a Docker TAR archive or a Docker Hub reference to share the algorithm with your workspace.</p>
+            <h1>Upload a simplified Docker-based algorithm</h1>
+            <p>Create a custom algorithm by providing just an algorithm.py file in your Docker image. Our system will automatically handle training and prediction infrastructure.</p>
           </div>
           <button class="btn ghost" type="button" data-action="back">Back to algorithms</button>
         </header>
@@ -102,15 +102,82 @@ class PageCreateAlgorithm extends HTMLElement {
                 <span>Parameters JSON</span>
                 <input type="file" id="parametersFile" name="parametersFile" accept="application/json,.json" required />
                 <small>Upload a JSON file describing the default parameters for this algorithm.</small>
+                <details class="example-section small">
+                  <summary>📝 View example parameters.json</summary>
+                  <pre><code>[
+  {
+    "name": "learning_rate",
+    "type": "DOUBLE",
+    "description": "Learning rate for gradient descent",
+    "value": "0.01",
+    "range": "0.001-1.0"
+  },
+  {
+    "name": "n_epochs",
+    "type": "INTEGER",
+    "description": "Number of training epochs",
+    "value": "1000",
+    "range": "10-5000"
+  }
+]</code></pre>
+                </details>
               </label>
             </fieldset>
 
             <fieldset class="group">
               <legend>Docker image</legend>
+              <div class="helper-box">
+                <p><strong>Your Docker image should contain:</strong></p>
+                <ul>
+                  <li><code>algorithm.py</code> with an Algorithm class</li>
+                  <li>Python environment with required dependencies</li>
+                  <li>Optional: <code>requirements.txt</code></li>
+                </ul>
+                <p><strong>Our system will automatically provide:</strong> <code>train.py</code> and <code>predict.py</code></p>
+                <details class="example-section">
+                  <summary>📖 View Algorithm class template</summary>
+                  <pre><code>import numpy as np
+
+class Algorithm:
+    def __init__(self, params: dict):
+        # Example hyperparams from params.json
+        self.learning_rate = params.get("learning_rate", 0.01)
+        self.n_epochs = params.get("n_epochs", 1000)
+        self.weights = None
+
+    def fit(self, X, y):
+        """Train a custom logistic regression from scratch (gradient descent)."""
+        X = np.array(X)
+        y = np.array(y)
+
+        # Add bias column
+        X = np.c_[np.ones(X.shape[0]), X]
+        n_samples, n_features = X.shape
+
+        # Initialize weights
+        self.weights = np.zeros(n_features)
+
+        # Gradient descent
+        for _ in range(self.n_epochs):
+            linear = np.dot(X, self.weights)
+            y_pred = 1 / (1 + np.exp(-linear))
+            gradient = np.dot(X.T, (y_pred - y)) / n_samples
+            self.weights -= self.learning_rate * gradient
+
+    def predict(self, X):
+        """Run prediction using trained weights."""
+        X = np.array(X)
+        X = np.c_[np.ones(X.shape[0]), X]
+        linear = np.dot(X, self.weights)
+        y_pred = 1 / (1 + np.exp(-linear))
+        return (y_pred >= 0.5).astype(int)</code></pre>
+                </details>
+              </div>
               <p class="helper">Provide <strong>either</strong> a Docker TAR archive <strong>or</strong> a Docker Hub URL. The server will reject submissions with both or neither.</p>
               <label class="field">
                 <span>Docker TAR archive</span>
                 <input type="file" id="dockerTarFile" name="dockerTarFile" accept=".tar,.tar.gz,.tgz,application/x-tar,application/gzip" />
+                <small>Upload your Docker image containing algorithm.py</small>
               </label>
               <div class="field">
                 <span>Docker Hub image</span>
@@ -273,7 +340,7 @@ class PageCreateAlgorithm extends HTMLElement {
     const hasHub = dockerHubUrl.length > 0;
 
     if (hasTar === hasHub) {
-      throw new Error("Provide either a Docker TAR archive or a Docker Hub URL (but not both).");
+      throw new Error("Provide either a Docker TAR archive containing algorithm.py or a Docker Hub URL (but not both).");
     }
 
     const payload: CreateCustomAlgorithmPayload = {
