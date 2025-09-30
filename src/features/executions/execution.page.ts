@@ -1,21 +1,17 @@
 import { getToken } from "../../core/auth.store";
 import { UnauthorizedError } from "../../core/http";
-import { fetchAlgorithms } from "../algorithms/api";
-import type { AlgorithmWeka } from "../algorithms/api";
-import { startTraining } from "./api";
+import { getModels, startExecution } from "./api";
+import type { RetrainModelOptionDTO } from "./api";
 import { getTaskStatus, stopTask } from "../tasks/api";
-import styles from "./styles/training-weka.css?raw";
+import styles from "./styles/execution.css?raw";
 
 type StatusTone = "info" | "success" | "error" | "warning";
 
 type ComponentState = {
-  algorithms: AlgorithmWeka[];
-  algorithmsLoading: boolean;
-  algorithmsError: string | null;
-  selectedAlgorithmId: string;
-  options: string;
-  basicColumns: string;
-  targetColumn: string;
+  models: RetrainModelOptionDTO[];
+  modelsLoading: boolean;
+  modelsError: string | null;
+  selectedModelId: string;
   submitting: boolean;
   taskId: string | null;
   taskStatus: string | null;
@@ -30,10 +26,7 @@ type Refs = {
   chooseFileBtn: HTMLButtonElement;
   clearFileBtn: HTMLButtonElement;
   fileName: HTMLElement;
-  algorithmSelect: HTMLSelectElement;
-  optionsInput: HTMLInputElement;
-  basicColumnsInput: HTMLInputElement;
-  targetColumnInput: HTMLInputElement;
+  modelSelect: HTMLSelectElement;
   submitButton: HTMLButtonElement;
   resetButton: HTMLButtonElement;
   stopButton: HTMLButtonElement;
@@ -46,17 +39,14 @@ type TaskStatusDTO = {
   [key: string]: unknown;
 };
 
-export class PageTrainWeka extends HTMLElement {
+export class PageExecution extends HTMLElement {
   private root!: ShadowRoot;
   private refs!: Refs;
   private state: ComponentState = {
-    algorithms: [],
-    algorithmsLoading: true,
-    algorithmsError: null,
-    selectedAlgorithmId: "",
-    options: "",
-    basicColumns: "",
-    targetColumn: "",
+    models: [],
+    modelsLoading: true,
+    modelsError: null,
+    selectedModelId: "",
     submitting: false,
     taskId: null,
     taskStatus: null,
@@ -69,7 +59,7 @@ export class PageTrainWeka extends HTMLElement {
   connectedCallback() {
     this.root = this.shadowRoot ?? this.attachShadow({ mode: "open" });
     this.render();
-    void this.loadAlgorithms();
+    void this.loadModels();
   }
 
   disconnectedCallback() {
@@ -86,17 +76,18 @@ export class PageTrainWeka extends HTMLElement {
       <div class="page">
         <header class="hero">
           <div class="hero__content">
-            <p class="hero__eyebrow">Training</p>
-            <h1>Launch a Weka training</h1>
+            <p class="hero__eyebrow">Execution</p>
+            <h1>Execute a Trained Model</h1>
             <p class="hero__lead">
-              Upload a dataset, choose one of the predefined Weka algorithms, and start an asynchronous training task.
-              Monitor its progress from the Trainings overview once it launches.
+              Upload a dataset and execute predictions using your trained models.
+              Works with both Weka algorithms and Custom Docker-based models.
+              Monitor the execution progress and download results once completed.
             </p>
           </div>
           <ul class="hero__list">
-            <li>Accepts CSV or ARFF datasets</li>
-            <li>Use Weka CLI flags in the options field</li>
-            <li>Optional numeric columns let you fine-tune inputs</li>
+            <li>Select from your trained models (Weka & Custom)</li>
+            <li>Accepts CSV or ARFF prediction datasets</li>
+            <li>Download prediction results as CSV</li>
           </ul>
         </header>
 
@@ -105,7 +96,17 @@ export class PageTrainWeka extends HTMLElement {
             <div class="status-banner" data-status hidden></div>
 
             <fieldset class="group">
-              <legend>Dataset</legend>
+              <legend>Model Selection</legend>
+              <label class="field">
+                <span>Trained Model</span>
+                <select id="model" required>
+                  <option value="" disabled selected>Loading models…</option>
+                </select>
+              </label>
+            </fieldset>
+
+            <fieldset class="group">
+              <legend>Prediction Dataset</legend>
               <div class="dropzone" data-dropzone>
                 <p class="dropzone__title" data-file-name>No file selected</p>
                 <p class="dropzone__hint">Drag &amp; drop a <code>.csv</code> or <code>.arff</code> file, or</p>
@@ -117,38 +118,9 @@ export class PageTrainWeka extends HTMLElement {
               </div>
             </fieldset>
 
-            <fieldset class="group">
-              <legend>Algorithm</legend>
-              <label class="field">
-                <span>Algorithm</span>
-                <select id="algorithm" required>
-                  <option value="" disabled selected>Loading algorithms…</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>Options (optional)</span>
-                <input type="text" id="options" placeholder="e.g. -C 0.5 -M 2" autocomplete="off" />
-                <small>Provide standard Weka flags. Leave blank to use the algorithm defaults.</small>
-              </label>
-            </fieldset>
-
-            <fieldset class="group">
-              <legend>Dataset configuration (optional)</legend>
-              <label class="field">
-                <span>Attribute columns</span>
-                <input type="text" id="basicColumns" placeholder="e.g. 1,2,3" inputmode="numeric" autocomplete="off" />
-                <small>Comma-separated column numbers to include during training.</small>
-              </label>
-              <label class="field">
-                <span>Class column</span>
-                <input type="text" id="targetColumn" placeholder="e.g. 4" inputmode="numeric" autocomplete="off" />
-                <small>Column number representing the target class. Leave empty to use the dataset default.</small>
-              </label>
-            </fieldset>
-
             <div class="form__actions">
-              <button class="btn primary" type="submit" disabled>Start training</button>
-              <button class="btn danger" type="button" data-action="stop" style="display: none;">Stop training</button>
+              <button class="btn primary" type="submit" disabled>Start execution</button>
+              <button class="btn danger" type="button" data-action="stop" style="display: none;">Stop execution</button>
               <button class="btn ghost" type="button" data-action="reset">Reset</button>
             </div>
           </form>
@@ -169,10 +141,7 @@ export class PageTrainWeka extends HTMLElement {
     const chooseFileBtn = this.root.querySelector<HTMLButtonElement>("[data-action='choose-file']");
     const clearFileBtn = this.root.querySelector<HTMLButtonElement>("[data-action='clear-file']");
     const fileName = this.root.querySelector<HTMLElement>("[data-file-name]");
-    const algorithmSelect = this.root.querySelector<HTMLSelectElement>("#algorithm");
-    const optionsInput = this.root.querySelector<HTMLInputElement>("#options");
-    const basicColumnsInput = this.root.querySelector<HTMLInputElement>("#basicColumns");
-    const targetColumnInput = this.root.querySelector<HTMLInputElement>("#targetColumn");
+    const modelSelect = this.root.querySelector<HTMLSelectElement>("#model");
     const submitButton = this.root.querySelector<HTMLButtonElement>(".form__actions .btn.primary");
     const resetButton = this.root.querySelector<HTMLButtonElement>("[data-action='reset']");
     const stopButton = this.root.querySelector<HTMLButtonElement>("[data-action='stop']");
@@ -180,10 +149,9 @@ export class PageTrainWeka extends HTMLElement {
 
     if (
       !form || !datasetInput || !dropzone || !chooseFileBtn || !clearFileBtn || !fileName ||
-      !algorithmSelect || !optionsInput || !basicColumnsInput || !targetColumnInput ||
-      !submitButton || !resetButton || !stopButton || !statusBanner
+      !modelSelect || !submitButton || !resetButton || !stopButton || !statusBanner
     ) {
-      throw new Error("Missing training form elements");
+      throw new Error("Missing execution form elements");
     }
 
     this.refs = {
@@ -193,10 +161,7 @@ export class PageTrainWeka extends HTMLElement {
       chooseFileBtn,
       clearFileBtn,
       fileName,
-      algorithmSelect,
-      optionsInput,
-      basicColumnsInput,
-      targetColumnInput,
+      modelSelect,
       submitButton,
       resetButton,
       stopButton,
@@ -217,20 +182,10 @@ export class PageTrainWeka extends HTMLElement {
 
     this.refs.clearFileBtn.addEventListener("click", () => this.setFile(null));
 
-    this.refs.algorithmSelect.addEventListener("change", (event) => {
+    this.refs.modelSelect.addEventListener("change", (event) => {
       const value = (event.target as HTMLSelectElement).value;
-      this.state.selectedAlgorithmId = value;
+      this.state.selectedModelId = value;
       this.updateSubmitState();
-    });
-
-    this.refs.optionsInput.addEventListener("input", (event) => {
-      this.state.options = (event.target as HTMLInputElement).value;
-    });
-    this.refs.basicColumnsInput.addEventListener("input", (event) => {
-      this.state.basicColumns = (event.target as HTMLInputElement).value;
-    });
-    this.refs.targetColumnInput.addEventListener("input", (event) => {
-      this.state.targetColumn = (event.target as HTMLInputElement).value;
     });
 
     this.refs.resetButton.addEventListener("click", () => this.resetForm(true));
@@ -238,61 +193,92 @@ export class PageTrainWeka extends HTMLElement {
     this.refs.form.addEventListener("submit", (event) => void this.handleSubmit(event));
   }
 
-  private async loadAlgorithms() {
-    this.state.algorithmsLoading = true;
-    this.state.algorithmsError = null;
-    this.populateAlgorithmsPlaceholder("Loading algorithms…", true);
+  private async loadModels() {
+    this.state.modelsLoading = true;
+    this.state.modelsError = null;
+    this.populateModelsPlaceholder("Loading models…", true);
     this.updateSubmitState();
 
     try {
-      const algorithms = await fetchAlgorithms();
-      this.state.algorithms = algorithms;
-      this.state.algorithmsLoading = false;
-      this.state.algorithmsError = null;
-      this.populateAlgorithms(algorithms);
+      console.log("🔍 Starting to load models...");
+      const token = getToken() ?? undefined;
+      console.log("🔑 Token exists:", !!token);
 
-      if (algorithms.length === 0) {
-        this.showStatus("No algorithms are available yet. Create one or contact an administrator.", "warning");
+      const models = await getModels(token);
+      console.log("📊 Raw models response:", models);
+
+      // For debugging: show all models first, then filter
+      console.log("🔍 All models with details:", models);
+      console.log("🔍 Models summary:", models.map(m => ({
+        id: m.modelId,
+        name: m.modelName,
+        algorithm: m.algorithmName,
+        status: m.status,
+        trainingId: m.trainingId
+      })));
+
+      // Filter only models with FINISHED status
+      const finishedModels = models.filter(model => model.status === "FINISHED");
+      console.log("✅ Finished models:", finishedModels);
+
+      // Temporarily show all models for debugging
+      const modelsToShow = models.length > 0 ? models : finishedModels;
+      console.log("📝 Showing models:", modelsToShow);
+
+      this.state.models = modelsToShow;
+      this.state.modelsLoading = false;
+      this.state.modelsError = null;
+      this.populateModels(modelsToShow);
+
+      if (modelsToShow.length === 0) {
+        this.showStatus("No trained models found. Please train a model first.", "warning");
+      } else if (finishedModels.length === 0 && models.length > 0) {
+        this.showStatus(`Found ${models.length} models but none are finished. Showing all for debugging.`, "info");
       } else {
         this.clearStatusIfInfoOnly();
       }
     } catch (error) {
+      console.error("❌ Error loading models:", error);
       if (error instanceof UnauthorizedError) {
         return;
       }
-      const message = error instanceof Error ? error.message : "Failed to load algorithms";
-      this.state.algorithmsLoading = false;
-      this.state.algorithmsError = message;
-      this.populateAlgorithmsPlaceholder("Failed to load algorithms", false);
+      const message = error instanceof Error ? error.message : "Failed to load models";
+      this.state.modelsLoading = false;
+      this.state.modelsError = message;
+      this.populateModelsPlaceholder("Failed to load models", false);
       this.showStatus(message, "error");
     } finally {
       this.updateSubmitState();
     }
   }
 
-  private populateAlgorithms(algorithms: AlgorithmWeka[]) {
-    const select = this.refs.algorithmSelect;
-    const previous = this.state.selectedAlgorithmId;
+  private populateModels(models: RetrainModelOptionDTO[]) {
+    const select = this.refs.modelSelect;
+    const previous = this.state.selectedModelId;
 
     const options = [
-      '<option value="" disabled>Select an algorithm</option>',
-      ...algorithms.map((algorithm) => `<option value="${algorithm.id}">${this.escapeHtml(algorithm.name)}</option>`)
+      '<option value="" disabled>Select a trained model</option>',
+      ...models.map((model) => {
+        // Ensure consistent formatting: ModelName - Model ID (Algorithm)
+        const displayName = `${this.escapeHtml(model.modelName)} - Model ${model.modelId} (${this.escapeHtml(model.algorithmName)})`;
+        return `<option value="${model.modelId}">${displayName}</option>`;
+      })
     ];
 
     select.innerHTML = options.join("");
 
-    if (previous && algorithms.some((item) => String(item.id) === previous)) {
+    if (previous && models.some((item) => String(item.modelId) === previous)) {
       select.value = previous;
     } else {
       select.selectedIndex = 0;
-      this.state.selectedAlgorithmId = "";
+      this.state.selectedModelId = "";
     }
 
-    select.disabled = this.state.algorithmsLoading || !!this.state.algorithmsError;
+    select.disabled = this.state.modelsLoading || !!this.state.modelsError;
   }
 
-  private populateAlgorithmsPlaceholder(label: string, loading: boolean) {
-    const select = this.refs.algorithmSelect;
+  private populateModelsPlaceholder(label: string, loading: boolean) {
+    const select = this.refs.modelSelect;
     select.innerHTML = `<option value="" disabled ${loading ? "selected" : ""}>${this.escapeHtml(label)}</option>`;
     select.disabled = true;
   }
@@ -337,20 +323,17 @@ export class PageTrainWeka extends HTMLElement {
   private updateSubmitState() {
     const canSubmit = Boolean(
       this.selectedFile &&
-      this.state.selectedAlgorithmId &&
+      this.state.selectedModelId &&
       !this.state.submitting &&
-      !this.state.algorithmsLoading &&
-      !this.state.algorithmsError
+      !this.state.modelsLoading &&
+      !this.state.modelsError
     );
 
     this.refs.submitButton.disabled = !canSubmit;
-    this.refs.submitButton.textContent = this.state.submitting ? "Starting…" : "Start training";
+    this.refs.submitButton.textContent = this.state.submitting ? "Starting…" : "Start execution";
 
-    this.refs.algorithmSelect.disabled = this.state.algorithmsLoading || !!this.state.algorithmsError || this.state.submitting;
+    this.refs.modelSelect.disabled = this.state.modelsLoading || !!this.state.modelsError || this.state.submitting;
     this.refs.chooseFileBtn.disabled = this.state.submitting;
-    this.refs.basicColumnsInput.disabled = this.state.submitting;
-    this.refs.targetColumnInput.disabled = this.state.submitting;
-    this.refs.optionsInput.disabled = this.state.submitting;
     this.refs.resetButton.disabled = this.state.submitting;
     this.refs.clearFileBtn.disabled = !this.selectedFile || this.state.submitting;
   }
@@ -359,69 +342,39 @@ export class PageTrainWeka extends HTMLElement {
     event.preventDefault();
 
     if (!this.selectedFile) {
-      this.showStatus("Please select a dataset file before starting the training.", "error");
+      this.showStatus("Please select a prediction dataset file before starting the execution.", "error");
       return;
     }
 
-    const algorithmId = this.state.selectedAlgorithmId || this.refs.algorithmSelect.value;
-    if (!algorithmId) {
-      this.showStatus("Select an algorithm to continue.", "error");
+    const modelId = this.state.selectedModelId || this.refs.modelSelect.value;
+    if (!modelId) {
+      this.showStatus("Select a trained model to continue.", "error");
       return;
     }
 
-    if (!/^\d+$/.test(algorithmId)) {
-      this.showStatus("Algorithm id must be numeric.", "error");
+    if (!/^\d+$/.test(modelId)) {
+      this.showStatus("Model id must be numeric.", "error");
       return;
     }
 
-    const basicRaw = (this.state.basicColumns || this.refs.basicColumnsInput.value).trim();
-    const basicColumns = basicRaw.replace(/\s+/g, "");
-    if (basicColumns && !/^\d+(,\d+)*$/.test(basicColumns)) {
-      this.showStatus("Attributes must be comma-separated numbers (e.g. 1,2,3).", "error");
-      return;
-    }
-
-    const targetRaw = (this.state.targetColumn || this.refs.targetColumnInput.value).trim();
-    const targetColumn = targetRaw.replace(/\s+/g, "");
-    if (targetColumn && !/^\d+$/.test(targetColumn)) {
-      this.showStatus("Class column must be a numeric value (e.g. 4).", "error");
-      return;
-    }
-
-    const optionsValue = (this.state.options || this.refs.optionsInput.value).trim();
     const formData = new FormData();
-    formData.append("file", this.selectedFile);
-    formData.append("algorithmId", algorithmId);
-    formData.append("options", optionsValue);
-
-    if (basicColumns) {
-      formData.append("basicCharacteristicsColumns", basicColumns);
-    }
-    if (targetColumn) {
-      formData.append("targetClassColumn", targetColumn);
-    }
-
-    this.state.options = optionsValue;
-    this.state.basicColumns = basicColumns;
-    this.state.targetColumn = targetColumn;
-    this.refs.basicColumnsInput.value = basicColumns;
-    this.refs.targetColumnInput.value = targetColumn;
-    this.refs.optionsInput.value = optionsValue;
+    formData.append("predictionFile", this.selectedFile);
+    formData.append("modelId", modelId);
 
     this.state.taskId = null;
     this.state.taskStatus = null;
     this.stopPolling();
     this.setSubmitting(true);
-    this.showStatus("Uploading dataset and starting training…", "info");
+    this.showStatus("Uploading dataset and starting execution…", "info");
 
     try {
       const token = getToken() ?? undefined;
-      const response = await startTraining(formData, token);
+      const response = await startExecution(formData, token);
       const taskId = this.extractTaskId(response);
       this.state.taskId = taskId;
       this.state.taskStatus = "PENDING";
       this.updateStopButton(); // Make sure stop button appears
-      this.showStatus(`Training task ${taskId} started. Monitoring status…`, "info");
+      this.showStatus(`Execution task ${taskId} started. Monitoring status…`, "info");
 
       // Start polling after a small delay to allow backend to initialize the task
       setTimeout(() => {
@@ -431,7 +384,7 @@ export class PageTrainWeka extends HTMLElement {
       if (error instanceof UnauthorizedError) {
         return;
       }
-      const message = error instanceof Error ? error.message : "Training failed";
+      const message = error instanceof Error ? error.message : "Execution failed";
       this.showStatus(message, "error");
     } finally {
       this.setSubmitting(false);
@@ -453,7 +406,7 @@ export class PageTrainWeka extends HTMLElement {
         return String(taskId);
       }
     }
-    throw new Error("Training started but task id was not returned by the server.");
+    throw new Error("Execution started but task id was not returned by the server.");
   }
 
   private beginPolling(taskId: string) {
@@ -472,27 +425,27 @@ export class PageTrainWeka extends HTMLElement {
       this.updateStopButton();
 
       if (status === "COMPLETED") {
-        this.showStatus(`Training completed successfully. Check the Trainings page to review the run.`, "success");
+        this.showStatus(`Execution completed successfully. Check the Executions page to download the results.`, "success");
         this.stopPolling();
         this.resetForm(false);
       } else if (status === "FAILED") {
         const extra = data.errorMessage ? ` Reason: ${data.errorMessage}` : "";
-        this.showStatus(`Training failed.${extra}`, "error");
+        this.showStatus(`Execution failed.${extra}`, "error");
         this.stopPolling();
       } else if (status === "STOPPED") {
-        this.showStatus("Training was stopped by the user.", "warning");
+        this.showStatus("Execution was stopped by the user.", "warning");
         this.stopPolling();
         this.state.taskId = null;
         this.state.taskStatus = null;
         this.updateStopButton();
       } else {
-        this.showStatus(`Training task ${taskId} is ${status.toLowerCase()}.`, "info");
+        this.showStatus(`Execution task ${taskId} is ${status.toLowerCase()}.`, "info");
       }
     } catch (error) {
       if (error instanceof UnauthorizedError) {
         return;
       }
-      const message = error instanceof Error ? error.message : "Cannot fetch training status";
+      const message = error instanceof Error ? error.message : "Cannot fetch execution status";
       this.showStatus(`Unable to check task status: ${message}`, "warning");
       this.stopPolling();
     }
@@ -503,12 +456,6 @@ export class PageTrainWeka extends HTMLElement {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
-  }
-
-  private updateStopButton() {
-    const isTraining = this.state.taskId && this.state.taskStatus &&
-                      (this.state.taskStatus === "RUNNING" || this.state.taskStatus === "PENDING");
-    this.refs.stopButton.style.display = isTraining ? 'inline-block' : 'none';
   }
 
   private async handleStop() {
@@ -523,15 +470,15 @@ export class PageTrainWeka extends HTMLElement {
       }
 
       this.refs.stopButton.disabled = true;
-      this.showStatus("Stopping training...", "warning");
+      this.showStatus("Stopping execution...", "warning");
 
       await stopTask(this.state.taskId, token);
-      this.showStatus("Stop request sent successfully. The training will be stopped shortly.", "info");
+      this.showStatus("Stop request sent successfully. The execution will be stopped shortly.", "info");
 
     } catch (error) {
-      console.error('Failed to stop training:', error);
-      const message = error instanceof Error ? error.message : "Failed to stop training";
-      this.showStatus(`Failed to stop training: ${message}`, "error");
+      console.error('Failed to stop execution:', error);
+      const message = error instanceof Error ? error.message : "Failed to stop execution";
+      this.showStatus(`Failed to stop execution: ${message}`, "error");
     } finally {
       this.refs.stopButton.disabled = false;
     }
@@ -544,18 +491,21 @@ export class PageTrainWeka extends HTMLElement {
     this.updateStopButton();
   }
 
+  private updateStopButton() {
+    const isExecuting = this.state.taskId && this.state.taskStatus &&
+                       (this.state.taskStatus === "RUNNING" || this.state.taskStatus === "PENDING");
+    this.refs.stopButton.style.display = isExecuting ? 'inline-block' : 'none';
+  }
+
   private resetForm(clearStatus: boolean) {
     this.refs.form.reset();
     this.setFile(null);
-    this.state.selectedAlgorithmId = "";
-    this.state.options = "";
-    this.state.basicColumns = "";
-    this.state.targetColumn = "";
+    this.state.selectedModelId = "";
     this.state.taskId = null;
     this.state.taskStatus = null;
 
-    if (this.state.algorithms.length > 0) {
-      this.populateAlgorithms(this.state.algorithms);
+    if (this.state.models.length > 0) {
+      this.populateModels(this.state.models);
     }
 
     if (clearStatus) {
@@ -612,4 +562,4 @@ export class PageTrainWeka extends HTMLElement {
   }
 }
 
-customElements.define("page-train-weka", PageTrainWeka);
+customElements.define("page-execution", PageExecution);

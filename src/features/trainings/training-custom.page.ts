@@ -4,7 +4,7 @@ import { fetchCustomAlgorithms } from "../algorithms/api";
 import type { CustomAlgorithm } from "../algorithms/api";
 import { startCustomTraining } from "./api";
 import type { CustomTrainingRequest } from "./api";
-import { getTaskStatus } from "../tasks/api";
+import { getTaskStatus, stopTask } from "../tasks/api";
 import styles from "./styles/training-custom.css?raw";
 
 type StatusTone = "info" | "success" | "error" | "warning";
@@ -40,6 +40,7 @@ type Refs = {
   targetColumnInput: HTMLInputElement;
   submitButton: HTMLButtonElement;
   resetButton: HTMLButtonElement;
+  stopButton: HTMLButtonElement;
   statusBanner: HTMLElement;
 };
 
@@ -181,6 +182,7 @@ export class PageTrainCustom extends HTMLElement {
             <button type="submit" class="btn primary" data-ref="submitButton">
               <span class="btn__text">Start Training</span>
             </button>
+            <button type="button" class="btn danger" data-ref="stopButton" style="display: none;">Stop Training</button>
           </div>
         </form>
       </div>
@@ -211,6 +213,7 @@ export class PageTrainCustom extends HTMLElement {
       targetColumnInput: query("targetColumnInput"),
       submitButton: query("submitButton"),
       resetButton: query("resetButton"),
+      stopButton: query("stopButton"),
       statusBanner: query("statusBanner")
     };
   }
@@ -233,6 +236,7 @@ export class PageTrainCustom extends HTMLElement {
     // Form events
     this.refs.form.addEventListener("submit", (e) => this.handleSubmit(e));
     this.refs.resetButton.addEventListener("click", () => this.resetForm());
+    this.refs.stopButton.addEventListener("click", () => void this.handleStop());
 
     // State binding
     this.refs.algorithmSelect.addEventListener("change", (e) => {
@@ -439,8 +443,14 @@ export class PageTrainCustom extends HTMLElement {
       const result = await startCustomTraining(request, token);
 
       this.state.taskId = result.taskId;
+      this.state.taskStatus = "PENDING";
+      this.updateStopButton(); // Make sure stop button appears
       this.showStatusBanner("Training started successfully! Tracking progress...", "success");
-      this.startPolling();
+
+      // Start polling after a small delay to allow backend to initialize the task
+      setTimeout(() => {
+        this.startPolling();
+      }, 1000);
 
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start training";
@@ -473,6 +483,7 @@ export class PageTrainCustom extends HTMLElement {
     this.state.taskStatus = null;
     this.hideStatusBanner();
     this.stopPolling();
+    this.updateStopButton();
   }
 
   private startPolling() {
@@ -490,6 +501,7 @@ export class PageTrainCustom extends HTMLElement {
 
         const status: TaskStatusDTO = await getTaskStatus(this.state.taskId, token);
         this.state.taskStatus = status.status;
+        this.updateStopButton();
 
         switch (status.status) {
           case "COMPLETED":
@@ -500,6 +512,13 @@ export class PageTrainCustom extends HTMLElement {
             const errorMsg = status.errorMessage || "Training failed";
             this.showStatusBanner(`Training failed: ${errorMsg}`, "error");
             this.stopPolling();
+            break;
+          case "STOPPED":
+            this.showStatusBanner("Training was stopped by the user.", "warning");
+            this.stopPolling();
+            this.state.taskId = null;
+            this.state.taskStatus = null;
+            this.updateStopButton();
             break;
           case "RUNNING":
             this.showStatusBanner("Training is in progress...", "info");
@@ -520,6 +539,38 @@ export class PageTrainCustom extends HTMLElement {
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
+    }
+  }
+
+  private updateStopButton() {
+    const isTraining = this.state.taskId && this.state.taskStatus &&
+                      (this.state.taskStatus === "RUNNING" || this.state.taskStatus === "PENDING");
+    this.refs.stopButton.style.display = isTraining ? 'inline-block' : 'none';
+  }
+
+  private async handleStop() {
+    if (!this.state.taskId) {
+      return;
+    }
+
+    try {
+      const token = getToken();
+      if (!token) {
+        throw new UnauthorizedError();
+      }
+
+      this.refs.stopButton.disabled = true;
+      this.showStatusBanner("Stopping training...", "warning");
+
+      await stopTask(this.state.taskId, token);
+      this.showStatusBanner("Stop request sent successfully. The training will be stopped shortly.", "info");
+
+    } catch (error) {
+      console.error('Failed to stop training:', error);
+      const message = error instanceof Error ? error.message : "Failed to stop training";
+      this.showStatusBanner(`Failed to stop training: ${message}`, "error");
+    } finally {
+      this.refs.stopButton.disabled = false;
     }
   }
 

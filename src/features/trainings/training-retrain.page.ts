@@ -9,7 +9,7 @@ import type {
   RetrainTrainingDetails,
   RetrainTrainingOption
 } from "./api";
-import { getTaskStatus } from "../tasks/api";
+import { getTaskStatus, stopTask } from "../tasks/api";
 import styles from "./styles/training-retrain.css?raw";
 
 type StatusTone = "info" | "success" | "error" | "warning";
@@ -67,6 +67,7 @@ type Refs = {
   targetColumnInput: HTMLInputElement;
   submitButton: HTMLButtonElement;
   resetButton: HTMLButtonElement;
+  stopButton: HTMLButtonElement;
   statusBanner: HTMLElement;
   modeTrainingRadio: HTMLInputElement;
   modeModelRadio: HTMLInputElement;
@@ -219,6 +220,7 @@ export class PageTrainRetrain extends HTMLElement {
 
             <div class="form__actions">
               <button class="btn primary" type="submit" disabled>Start retraining</button>
+              <button class="btn danger" type="button" data-action="stop" style="display: none;">Stop retraining</button>
               <button class="btn ghost" type="button" data-action="reset" disabled>Reset overrides</button>
             </div>
           </form>
@@ -241,6 +243,7 @@ export class PageTrainRetrain extends HTMLElement {
     const targetColumnInput = this.root.querySelector<HTMLInputElement>("#targetColumn");
     const submitButton = this.root.querySelector<HTMLButtonElement>(".form__actions .btn.primary");
     const resetButton = this.root.querySelector<HTMLButtonElement>("[data-action='reset']");
+    const stopButton = this.root.querySelector<HTMLButtonElement>("[data-action='stop']");
     const statusBanner = this.root.querySelector<HTMLElement>("[data-status]");
     const modeTrainingRadio = this.root.querySelector<HTMLInputElement>("input[name='retrain-source'][value='training']");
     const modeModelRadio = this.root.querySelector<HTMLInputElement>("input[name='retrain-source'][value='model']");
@@ -252,7 +255,7 @@ export class PageTrainRetrain extends HTMLElement {
     if (
       !form || !datasetInput || !dropzone || !chooseFileBtn || !clearFileBtn || !fileName || !datasetCaption ||
       !algorithmSelect || !optionsInput || !basicColumnsInput || !targetColumnInput ||
-      !submitButton || !resetButton || !statusBanner || !modeTrainingRadio || !modeModelRadio ||
+      !submitButton || !resetButton || !stopButton || !statusBanner || !modeTrainingRadio || !modeModelRadio ||
       !trainingWrapper || !modelWrapper || !trainingSelect || !modelSelect
     ) {
       throw new Error("Missing retrain form elements");
@@ -272,6 +275,7 @@ export class PageTrainRetrain extends HTMLElement {
       targetColumnInput,
       submitButton,
       resetButton,
+      stopButton,
       statusBanner,
       modeTrainingRadio,
       modeModelRadio,
@@ -317,6 +321,7 @@ export class PageTrainRetrain extends HTMLElement {
     });
 
     this.refs.resetButton.addEventListener("click", () => this.resetOverrides());
+    this.refs.stopButton.addEventListener("click", () => void this.handleStop());
     this.refs.form.addEventListener("submit", (event) => void this.handleSubmit(event));
   }
 
@@ -847,8 +852,13 @@ export class PageTrainRetrain extends HTMLElement {
       const taskId = this.extractTaskId(response);
       this.state.taskId = taskId;
       this.state.taskStatus = "PENDING";
+      this.updateStopButton(); // Make sure stop button appears
       this.showStatus(`Retraining task ${taskId} started. Monitoring status…`, "info");
-      this.beginPolling(taskId);
+
+      // Start polling after a small delay to allow backend to initialize the task
+      setTimeout(() => {
+        this.beginPolling(taskId);
+      }, 1000);
     } catch (error) {
       if (error instanceof UnauthorizedError) {
         return;
@@ -892,18 +902,28 @@ export class PageTrainRetrain extends HTMLElement {
       const data = (await getTaskStatus(taskId, token)) as TaskStatusDTO;
       const status = data.status ?? "UNKNOWN";
       this.state.taskStatus = status;
+      this.updateStopButton();
 
       if (status === "COMPLETED") {
         this.showStatus("Retraining completed successfully. Review it in the Trainings page.", "success");
         this.stopPolling();
+        this.state.taskId = null;
+        this.state.taskStatus = null;
+        this.updateStopButton();
         this.resetOverrides();
       } else if (status === "FAILED") {
         const extra = data.errorMessage ? ` Reason: ${data.errorMessage}` : "";
         this.showStatus(`Retraining failed.${extra}`, "error");
         this.stopPolling();
+        this.state.taskId = null;
+        this.state.taskStatus = null;
+        this.updateStopButton();
       } else if (status === "STOPPED") {
         this.showStatus("Retraining was stopped by the user.", "warning");
         this.stopPolling();
+        this.state.taskId = null;
+        this.state.taskStatus = null;
+        this.updateStopButton();
       } else {
         this.showStatus(`Retraining task ${taskId} is ${status.toLowerCase()}.`, "info");
       }
@@ -924,10 +944,43 @@ export class PageTrainRetrain extends HTMLElement {
     }
   }
 
+  private updateStopButton() {
+    const isRetraining = this.state.taskId && this.state.taskStatus &&
+                        (this.state.taskStatus === "RUNNING" || this.state.taskStatus === "PENDING");
+    this.refs.stopButton.style.display = isRetraining ? 'inline-block' : 'none';
+  }
+
+  private async handleStop() {
+    if (!this.state.taskId) {
+      return;
+    }
+
+    try {
+      const token = getToken();
+      if (!token) {
+        throw new UnauthorizedError();
+      }
+
+      this.refs.stopButton.disabled = true;
+      this.showStatus("Stopping retraining...", "warning");
+
+      await stopTask(this.state.taskId, token);
+      this.showStatus("Stop request sent successfully. The retraining will be stopped shortly.", "info");
+
+    } catch (error) {
+      console.error('Failed to stop retraining:', error);
+      const message = error instanceof Error ? error.message : "Failed to stop retraining";
+      this.showStatus(`Failed to stop retraining: ${message}`, "error");
+    } finally {
+      this.refs.stopButton.disabled = false;
+    }
+  }
+
   private setSubmitting(isSubmitting: boolean) {
     this.state.submitting = isSubmitting;
     this.refs.form.classList.toggle("form--submitting", isSubmitting);
     this.updateSubmitState();
+    this.updateStopButton();
   }
 
   private showStatus(message: string, tone: StatusTone) {

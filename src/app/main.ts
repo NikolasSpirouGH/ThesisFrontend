@@ -13,6 +13,7 @@ import "../features/auth/login.page";
 import "../features/auth/reset-pass.page";
 import "../features/models/models.page";
 import "../features/executions/executions.page";
+import "../features/executions/execution.page";
 import "../features/categories/categories.page";
 
 const app = document.getElementById("app")!;
