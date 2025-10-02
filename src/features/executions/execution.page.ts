@@ -7,7 +7,7 @@ import styles from "./styles/execution.css?raw";
 
 type StatusTone = "info" | "success" | "error" | "warning";
 
-type ComponentState = {
+type ComponentState = { 
   models: RetrainModelOptionDTO[];
   modelsLoading: boolean;
   modelsError: string | null;
