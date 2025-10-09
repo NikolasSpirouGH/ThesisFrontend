@@ -41,4 +41,7 @@ export const routes = {
   "/execute": (app: HTMLElement) => {
     app.replaceChildren(document.createElement("page-execution"));
   },
+  "/results/:id": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-results"));
+  },
 };

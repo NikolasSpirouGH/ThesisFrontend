@@ -142,6 +142,7 @@ class PageTrainings extends HTMLElement {
     const isDownloading = busyState === "download";
     const cannotDelete = status === "running" || status === "requested";
     const canDownload = status === "completed";
+    const canViewResults = status === "completed" && training.modelId;
 
     return `
       <tr>
@@ -159,6 +160,14 @@ class PageTrainings extends HTMLElement {
         <td>${this.formatDate(training.finishedDate)}</td>
         <td>
           <div class="row-actions">
+            ${canViewResults ? `
+              <button
+                class="btn small primary"
+                type="button"
+                data-view-results="${training.modelId}"
+                ${this.loading ? "disabled" : ""}
+              >View Results</button>
+            ` : ''}
             <button
               class="btn small ghost"
               type="button"
@@ -226,6 +235,17 @@ class PageTrainings extends HTMLElement {
           return;
         }
         void this.handleDownload(id);
+      });
+    });
+
+    this.root.querySelectorAll<HTMLButtonElement>("[data-view-results]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const value = btn.dataset.viewResults;
+        const modelId = value ? Number.parseInt(value, 10) : NaN;
+        if (!Number.isFinite(modelId)) {
+          return;
+        }
+        window.location.hash = `#/results/${modelId}`;
       });
     });
   }

@@ -8,6 +8,7 @@ export type TrainingItem = {
   startedDate: string | null;
   finishedDate: string | null;
   datasetName: string | null;
+  modelId: number | null;
 };
 
 export type DownloadModelPayload = {
