@@ -38,6 +38,9 @@ export const routes = {
   "/categories": (app: HTMLElement) => {
     app.replaceChildren(document.createElement("page-categories"));
   },
+  "/datasets": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-datasets"));
+  },
   "/execute": (app: HTMLElement) => {
     app.replaceChildren(document.createElement("page-execution"));
   },

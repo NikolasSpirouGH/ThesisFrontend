@@ -206,7 +206,8 @@ export class PageHome extends HTMLElement {
       { title: "Trainings", description: "Monitor active runs and review past experiments.", route: "/trainings" },
       { title: "Models", description: "Browse trained models and prepare deployments.", route: "/models" },
       { title: "Executions", description: "Inspect model execution history and runtime metrics.", route: "/executions" },
-      { title: "Datasets & Categories", description: "Organise datasets and manage their visibility.", route: "/categories" },
+      { title: "Datasets", description: "Upload, manage and organize your training datasets.", route: "/datasets" },
+      { title: "Categories", description: "Organize models and datasets with hierarchical taxonomy.", route: "/categories" },
       { title: "Algorithms", description: "Manage predefined and custom training algorithms.", route: "/algorithms" },
     ];
 

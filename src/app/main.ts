@@ -15,6 +15,7 @@ import "../features/models/models.page";
 import "../features/executions/executions.page";
 import "../features/executions/execution.page";
 import "../features/categories/categories.page";
+import "../features/datasets/datasets.page";
 import "../features/results/results.page";
 
 const app = document.getElementById("app")!;
