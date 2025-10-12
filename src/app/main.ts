@@ -17,6 +17,8 @@ import "../features/executions/execution.page";
 import "../features/categories/categories.page";
 import "../features/datasets/datasets.page";
 import "../features/results/results.page";
+import "../features/users/users.page";
+import "../features/users/profile.page";
 
 const app = document.getElementById("app")!;
 startHashRouter(

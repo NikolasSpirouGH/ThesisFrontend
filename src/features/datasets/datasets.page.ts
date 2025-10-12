@@ -156,6 +156,7 @@ class PageDatasets extends HTMLElement {
                 <th>Size</th>
                 <th>Type</th>
                 <th>Status</th>
+                <th>Owner</th>
                 <th>Uploaded</th>
                 <th>Trainings</th>
                 <th>Actions</th>
@@ -188,6 +189,7 @@ class PageDatasets extends HTMLElement {
         <td>
           <span class="status status--${this.statusModifier(dataset.status)}">${dataset.status}</span>
         </td>
+        <td>${dataset.ownerUsername || 'Unknown'}</td>
         <td>${this.formatDate(dataset.uploadDate)}</td>
         <td>
           <div class="training-stats">

@@ -11,6 +11,9 @@ RUN npm install
 # Copy source code
 COPY . .
 
+# Set permissions for non-root users
+RUN chmod -R 777 /app
+
 # Expose port
 EXPOSE 5173
 

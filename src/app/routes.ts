@@ -47,4 +47,10 @@ export const routes = {
   "/results/:id": (app: HTMLElement) => {
     app.replaceChildren(document.createElement("page-results"));
   },
+  "/users": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-users"));
+  },
+  "/profile": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-profile"));
+  },
 };
