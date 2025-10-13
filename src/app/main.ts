@@ -19,6 +19,11 @@ import "../features/datasets/datasets.page";
 import "../features/results/results.page";
 import "../features/users/users.page";
 import "../features/users/profile.page";
+import "../features/users/edit-profile.page";
+import "../features/users/change-password.page";
+import "../features/users/delete-account.page";
+import "../features/admin/admin-users.page";
+import "../features/admin/admin-categories.page";
 
 const app = document.getElementById("app")!;
 startHashRouter(

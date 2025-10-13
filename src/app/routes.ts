@@ -53,4 +53,19 @@ export const routes = {
   "/profile": (app: HTMLElement) => {
     app.replaceChildren(document.createElement("page-profile"));
   },
+  "/profile/edit": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-edit-profile"));
+  },
+  "/profile/change-password": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-change-password"));
+  },
+  "/profile/delete": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-delete-account"));
+  },
+  "/admin/users": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-admin-users"));
+  },
+  "/admin/categories": (app: HTMLElement) => {
+    app.replaceChildren(document.createElement("page-admin-categories"));
+  },
 };

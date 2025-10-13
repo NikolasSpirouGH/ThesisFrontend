@@ -80,7 +80,12 @@ export class PageHome extends HTMLElement {
               <span class="chip chip--muted">${roleLabel}</span>
             </div>
             <div class="hero__actions">
+              <button class="btn ghost" type="button" data-route="/profile/edit">Edit Profile</button>
+              <button class="btn ghost" type="button" data-route="/profile/change-password">Change Password</button>
               <button class="btn ghost" type="button" data-action="logout">Logout</button>
+            </div>
+            <div class="hero__danger">
+              <button class="btn ghost danger" type="button" data-route="/profile/delete">Delete Account</button>
             </div>
           </div>
         </header>
@@ -214,9 +219,8 @@ export class PageHome extends HTMLElement {
     if (scope === "admin") {
       return [
         ...base,
-        { title: "Admin console", description: "System-level controls and audit tooling.", featureKey: "admin console" },
-        { title: "User management", description: "Invite, deactivate or adjust roles for collaborators.", featureKey: "user management" },
-        { title: "System health", description: "Monitor infrastructure, queues and background jobs.", featureKey: "system health" },
+        { title: "User Management", description: "View, manage, and moderate all registered users.", route: "/admin/users" },
+        { title: "Category Approval", description: "Review and approve category proposals from users.", route: "/admin/categories" },
       ];
     }
 
