@@ -80,24 +80,6 @@ export class PageEditProfile extends HTMLElement {
     }
   }
 
-  private renderLoading() {
-    this.root.innerHTML = `
-      <style>${styles}</style>
-      <main class="main">
-        <section class="card">
-          <div class="brand">
-            <div class="logo">👤</div>
-            <h1>Edit Profile</h1>
-            <p>Loading your profile...</p>
-          </div>
-          <div style="text-align: center; padding: 2rem;">
-            <div class="spinner" style="margin: 0 auto;"></div>
-          </div>
-        </section>
-      </main>
-    `;
-  }
-
   private render() {
     const user = this.currentUser!;
 
