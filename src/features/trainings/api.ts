@@ -11,9 +11,25 @@ export type TrainingItem = {
   modelId: number | null;
 };
 
+export type TrainingSearchParams = {
+  fromDate?: string;
+  algorithmId?: number;
+  type?: string;
+};
+
 export type DownloadModelPayload = {
   blob: Blob;
   filename: string;
+};
+
+export type UsedAlgorithm = {
+  id: number;
+  name: string;
+};
+
+export type UsedAlgorithmsResponse = {
+  predefined: UsedAlgorithm[];
+  custom: UsedAlgorithm[];
 };
 
 export type RetrainTrainingOption = {
@@ -64,14 +80,52 @@ async function normaliseError(res: Response, fallback: string): Promise<string> 
   return body || res.statusText || fallback;
 }
 
-export async function fetchTrainings(token?: string): Promise<TrainingItem[]> {
+export async function fetchUsedAlgorithms(token?: string): Promise<UsedAlgorithmsResponse> {
   try {
     const headers: Record<string, string> = {
       Accept: "application/json",
       ...authHeader(token)
     };
 
-    const res = await fetch("/api/train/trainings", { headers });
+    const res = await fetch("/api/train/used-algorithms", { headers });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      const message = await normaliseError(res, "Failed to load used algorithms");
+      throw new Error(`${res.status}: ${message}`);
+    }
+
+    return res.json();
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
+  }
+}
+
+export async function fetchTrainings(token?: string, params?: TrainingSearchParams): Promise<TrainingItem[]> {
+  try {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      ...authHeader(token)
+    };
+
+    // Build query string
+    const queryParams = new URLSearchParams();
+    if (params?.fromDate) {
+      queryParams.append("fromDate", params.fromDate);
+    }
+    if (params?.algorithmId) {
+      queryParams.append("algorithmId", params.algorithmId.toString());
+    }
+    if (params?.type) {
+      queryParams.append("type", params.type);
+    }
+
+    const queryString = queryParams.toString();
+    const url = `/api/train/trainings${queryString ? `?${queryString}` : ""}`;
+
+    const res = await fetch(url, { headers });
 
     handleUnauthorized(res);
 

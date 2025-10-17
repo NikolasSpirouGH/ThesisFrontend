@@ -1,7 +1,7 @@
 import { getToken } from "../../core/auth.store";
 import { UnauthorizedError } from "../../core/http";
-import { deleteTraining, downloadTrainingModel, fetchTrainings } from "./api";
-import type { TrainingItem } from "./api";
+import { deleteTraining, downloadTrainingModel, fetchTrainings, fetchUsedAlgorithms } from "./api";
+import type { TrainingItem, TrainingSearchParams } from "./api";
 import styles from "./styles/trainings.css?raw";
 
 type BusyAction = "delete" | "download";
@@ -12,17 +12,27 @@ declare global {
   }
 }
 
+type AlgorithmOption = {
+  id: number;
+  name: string;
+  type: "predefined" | "custom";
+};
+
 class PageTrainings extends HTMLElement {
   private root!: ShadowRoot;
   private trainings: TrainingItem[] = [];
+  private algorithms: AlgorithmOption[] = [];
   private loading = false;
   private error: string | null = null;
   private busy = new Map<number, BusyAction>();
   private showLauncher = false;
+  private showSearchPanel = false;
+  private searchParams: TrainingSearchParams = {};
 
   connectedCallback() {
     this.root = this.shadowRoot ?? this.attachShadow({ mode: "open" });
     this.render();
+    void this.loadAlgorithms();
     void this.loadTrainings();
   }
 
@@ -36,10 +46,12 @@ class PageTrainings extends HTMLElement {
             <p>View the status of your training runs, start new jobs, and download completed models.</p>
           </div>
           <div class="hero__actions">
+            <button class="btn ghost" type="button" data-action="toggle-search">${this.showSearchPanel ? "Hide Search" : "Show Search"}</button>
             <button class="btn primary" type="button" data-action="start">Start training</button>
             <button class="btn ghost" type="button" data-action="refresh" ${this.loading ? "disabled" : ""}>${this.loading ? "Refreshing…" : "Refresh"}</button>
           </div>
         </header>
+        ${this.renderSearchPanel()}
         ${this.renderLauncher()}
         ${this.renderBody()}
       </div>
@@ -82,6 +94,58 @@ class PageTrainings extends HTMLElement {
           <button class="btn small ghost" type="button" data-action="close-launcher">Cancel</button>
         </section>
       </div>
+    `;
+  }
+
+  private renderSearchPanel(): string {
+    if (!this.showSearchPanel) {
+      return "";
+    }
+
+    // Group algorithms by type for better UX
+    const predefined = this.algorithms.filter((a) => a.type === "predefined");
+    const custom = this.algorithms.filter((a) => a.type === "custom");
+
+    // Create a compound value to track both selected algorithm and its type
+    const selectedValue = this.searchParams.algorithmId && this.searchParams.type
+      ? `${this.searchParams.type}:${this.searchParams.algorithmId}`
+      : "";
+
+    return `
+      <section class="panel">
+        <h2>Search Trainings</h2>
+        <div class="form-group">
+          <label for="search-fromDate">From Date</label>
+          <input
+            type="date"
+            id="search-fromDate"
+            name="fromDate"
+            value="${this.searchParams.fromDate || ""}"
+          />
+        </div>
+        <div class="form-group">
+          <label for="search-algorithm">Algorithm</label>
+          <select id="search-algorithm" name="algorithmId">
+            <option value="">All Algorithms</option>
+            ${predefined.length > 0 ? `<optgroup label="Predefined Algorithms">
+              ${predefined.map((alg) => {
+                const value = `PREDEFINED:${alg.id}`;
+                return `<option value="${value}" ${selectedValue === value ? "selected" : ""}>${alg.name}</option>`;
+              }).join("")}
+            </optgroup>` : ""}
+            ${custom.length > 0 ? `<optgroup label="Custom Algorithms">
+              ${custom.map((alg) => {
+                const value = `CUSTOM:${alg.id}`;
+                return `<option value="${value}" ${selectedValue === value ? "selected" : ""}>${alg.name}</option>`;
+              }).join("")}
+            </optgroup>` : ""}
+          </select>
+        </div>
+        <div class="form-group" style="display: flex; gap: 0.5rem;">
+          <button class="btn primary" type="button" data-action="execute-search">Search</button>
+          <button class="btn ghost" type="button" data-action="clear-search">Clear</button>
+        </div>
+      </section>
     `;
   }
 
@@ -248,6 +312,56 @@ class PageTrainings extends HTMLElement {
         window.location.hash = `#/results/${modelId}`;
       });
     });
+
+    // Search toggle
+    this.root.querySelector<HTMLButtonElement>("[data-action='toggle-search']")?.addEventListener("click", () => {
+      this.showSearchPanel = !this.showSearchPanel;
+      this.render();
+    });
+
+    // Search input bindings
+    this.root.querySelector<HTMLInputElement>("#search-fromDate")?.addEventListener("input", (e) => {
+      this.searchParams.fromDate = (e.target as HTMLInputElement).value;
+    });
+
+    this.root.querySelector<HTMLSelectElement>("#search-algorithm")?.addEventListener("change", (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      if (value) {
+        // Value format: "PREDEFINED:1" or "CUSTOM:5"
+        const [type, idStr] = value.split(":");
+        this.searchParams.algorithmId = Number.parseInt(idStr, 10);
+        this.searchParams.type = type as "CUSTOM" | "PREDEFINED";
+      } else {
+        this.searchParams.algorithmId = undefined;
+        this.searchParams.type = undefined;
+      }
+    });
+
+    // Execute search
+    this.root.querySelector<HTMLButtonElement>("[data-action='execute-search']")?.addEventListener("click", () => {
+      void this.loadTrainings(true);
+    });
+
+    // Clear search
+    this.root.querySelector<HTMLButtonElement>("[data-action='clear-search']")?.addEventListener("click", () => {
+      this.searchParams = {};
+      void this.loadTrainings(true);
+      this.render();
+    });
+  }
+
+  private async loadAlgorithms() {
+    try {
+      const token = getToken() ?? undefined;
+      const usedAlgorithms = await fetchUsedAlgorithms(token);
+
+      this.algorithms = [
+        ...usedAlgorithms.predefined.map((alg) => ({ id: alg.id, name: alg.name, type: "predefined" as const })),
+        ...usedAlgorithms.custom.map((alg) => ({ id: alg.id, name: alg.name, type: "custom" as const }))
+      ];
+    } catch (err) {
+      console.error("Failed to load algorithms:", err);
+    }
   }
 
   private async loadTrainings(force = false) {
@@ -260,7 +374,7 @@ class PageTrainings extends HTMLElement {
 
     try {
       const token = getToken() ?? undefined;
-      const items = await fetchTrainings(token);
+      const items = await fetchTrainings(token, this.searchParams);
       this.trainings = [...items].sort((a, b) => this.dateValue(b.startedDate) - this.dateValue(a.startedDate));
     } catch (err) {
       if (err instanceof UnauthorizedError) {

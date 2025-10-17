@@ -38,6 +38,30 @@ export type FinalizeModelRequest = {
   isPublic: boolean;
 };
 
+export type UpdateModelRequest = {
+  name: string;
+  description: string;
+  dataDescription: string;
+  categoryId: number;
+  keywords: string[];
+  isPublic: boolean;
+};
+
+export type SearchModelRequest = {
+  keyword?: string;
+  name?: string;
+  description?: string;
+  keywords?: string[];
+  categoryIds?: number[];
+  accessibility?: string;
+  modelType?: string;
+  trainingDateFrom?: string;
+  trainingDateTo?: string;
+  creationDateFrom?: string;
+  creationDateTo?: string;
+  searchMode?: "AND" | "OR";
+};
+
 function authHeader(token?: string): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
@@ -117,6 +141,118 @@ export async function finalizeModel(
       const message = await normaliseError(res, "Failed to finalize model");
       throw new Error(`${res.status}: ${message}`);
     }
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
+  }
+}
+
+export async function getModelById(
+  modelId: number,
+  token?: string
+): Promise<ModelItem> {
+  try {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      ...authHeader(token)
+    };
+
+    const res = await fetch(`/api/models/${modelId}`, { headers });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      const message = await normaliseError(res, "Failed to load model");
+      throw new Error(`${res.status}: ${message}`);
+    }
+
+    return res.json();
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
+  }
+}
+
+export async function updateModel(
+  modelId: number,
+  request: UpdateModelRequest,
+  token?: string
+): Promise<void> {
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...authHeader(token)
+    };
+
+    const res = await fetch(`/api/models/${modelId}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(request)
+    });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      const message = await normaliseError(res, "Failed to update model");
+      throw new Error(`${res.status}: ${message}`);
+    }
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
+  }
+}
+
+export async function deleteModel(
+  modelId: number,
+  token?: string
+): Promise<void> {
+  try {
+    const headers: Record<string, string> = {
+      ...authHeader(token)
+    };
+
+    const res = await fetch(`/api/models/${modelId}`, {
+      method: "DELETE",
+      headers
+    });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      const message = await normaliseError(res, "Failed to delete model");
+      throw new Error(`${res.status}: ${message}`);
+    }
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
+  }
+}
+
+export async function searchModels(
+  request: SearchModelRequest,
+  token?: string
+): Promise<ModelItem[]> {
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...authHeader(token)
+    };
+
+    const res = await fetch("/api/models/search", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(request)
+    });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      const message = await normaliseError(res, "Failed to search models");
+      throw new Error(`${res.status}: ${message}`);
+    }
+
+    return res.json();
   } catch (error) {
     handleNetworkError(error);
     throw error;

@@ -146,7 +146,7 @@ export class PageAdminCategories extends HTMLElement {
 
       if (res.ok) {
         const response = await res.json();
-        this.requests = response.data || [];
+        this.requests = response.dataHeader || response.data || [];
         this.updateStats();
         this.filterRequests();
       } else {

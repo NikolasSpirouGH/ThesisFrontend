@@ -162,7 +162,7 @@ export class PageAdminUsers extends HTMLElement {
 
       if (res.ok) {
         const response = await res.json();
-        this.users = response.data || [];
+        this.users = response.dataHeader || response.data || [];
         this.filteredUsers = [...this.users];
         this.renderUsers();
       } else {

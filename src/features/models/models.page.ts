@@ -1,10 +1,10 @@
 import { getToken, getUser } from "../../core/auth.store";
 import { UnauthorizedError } from "../../core/http";
-import { fetchModels, fetchCategories, finalizeModel } from "./api";
-import type { ModelItem, CategoryItem, FinalizeModelRequest } from "./api";
+import { fetchModels, fetchCategories, finalizeModel, getModelById, updateModel, deleteModel, searchModels } from "./api";
+import type { ModelItem, CategoryItem, FinalizeModelRequest, UpdateModelRequest, SearchModelRequest } from "./api";
 import styles from "./styles/models.css?raw";
 
-type BusyAction = "finalize";
+type BusyAction = "finalize" | "update" | "delete";
 
 declare global {
   interface HTMLElementTagNameMap {
@@ -15,12 +15,19 @@ declare global {
 class PageModels extends HTMLElement {
   private root!: ShadowRoot;
   private models: ModelItem[] = [];
+  private filteredModels: ModelItem[] = [];
   private categories: CategoryItem[] = [];
   private loading = false;
   private error: string | null = null;
   private busy = new Map<number, BusyAction>();
   private showFinalizeModal = false;
+  private showViewModal = false;
+  private showEditModal = false;
+  private showDeleteModal = false;
+  private showSearchPanel = false;
+  private searchMode: "simple" | "advanced" = "simple";
   private selectedModelId: number | null = null;
+  private selectedModel: ModelItem | null = null;
   private formData = {
     name: "",
     description: "",
@@ -28,6 +35,10 @@ class PageModels extends HTMLElement {
     categoryId: "",
     keywords: "",
     isPublic: false
+  };
+  private searchData: SearchModelRequest = {
+    keyword: "",
+    searchMode: "AND"
   };
 
   connectedCallback() {
@@ -46,11 +57,16 @@ class PageModels extends HTMLElement {
             <p>View your trained models and public models from other users. Finalize models to add metadata and categorization.</p>
           </div>
           <div class="hero__actions">
+            <button class="btn ghost" type="button" data-action="toggle-search">${this.showSearchPanel ? "Hide Search" : "Show Search"}</button>
             <button class="btn ghost" type="button" data-action="refresh" ${this.loading ? "disabled" : ""}>${this.loading ? "Refreshing…" : "Refresh"}</button>
           </div>
         </header>
+        ${this.renderSearchPanel()}
         ${this.renderBody()}
         ${this.renderFinalizeModal()}
+        ${this.renderViewModal()}
+        ${this.renderEditModal()}
+        ${this.renderDeleteModal()}
       </div>
     `;
 
@@ -58,6 +74,10 @@ class PageModels extends HTMLElement {
   }
 
   private renderBody(): string {
+    // Determine if a search is active
+    const isSearchActive = this.filteredModels.length > 0 || this.hasSearchCriteria();
+    const displayModels = isSearchActive ? this.filteredModels : this.models;
+
     if (this.loading && this.models.length === 0 && !this.error) {
       return `
         <section class="panel state">
@@ -84,6 +104,16 @@ class PageModels extends HTMLElement {
       `;
     }
 
+    // Only show "no search results" if a search is actually active
+    if (isSearchActive && this.filteredModels.length === 0 && this.models.length > 0) {
+      return `
+        <section class="panel state empty">
+          <h2>No models match your search</h2>
+          <p>Try adjusting your search criteria.</p>
+        </section>
+      `;
+    }
+
     return `
       <section class="panel">
         <div class="table-wrapper">
@@ -102,7 +132,7 @@ class PageModels extends HTMLElement {
               </tr>
             </thead>
             <tbody>
-              ${this.models.map((item) => this.renderRow(item)).join("")}
+              ${displayModels.map((item) => this.renderRow(item)).join("")}
             </tbody>
           </table>
         </div>
@@ -110,12 +140,31 @@ class PageModels extends HTMLElement {
     `;
   }
 
+  private hasSearchCriteria(): boolean {
+    return !!(
+      this.searchData.keyword ||
+      this.searchData.name ||
+      this.searchData.description ||
+      (this.searchData.keywords && this.searchData.keywords.length > 0) ||
+      (this.searchData.categoryIds && this.searchData.categoryIds.length > 0) ||
+      this.searchData.accessibility ||
+      this.searchData.modelType ||
+      this.searchData.trainingDateFrom ||
+      this.searchData.trainingDateTo ||
+      this.searchData.creationDateFrom ||
+      this.searchData.creationDateTo
+    );
+  }
+
   private renderRow(model: ModelItem): string {
     const status = (model.status ?? "").toLowerCase();
     const busyState = this.busy.get(model.id);
     const isFinalizing = busyState === "finalize";
+    const isUpdating = busyState === "update";
+    const isDeleting = busyState === "delete";
     const canFinalize = !model.finalized && (status === "finished" || status === "in_progress");
     const isOwner = this.isModelOwner(model);
+    const canView = isOwner || model.accessibility === "PUBLIC";
 
     return `
       <tr>
@@ -140,6 +189,22 @@ class PageModels extends HTMLElement {
         <td>${model.ownerUsername ?? "—"}</td>
         <td>
           <div class="row-actions">
+            ${canView ? `
+              <button
+                class="btn small ghost"
+                type="button"
+                data-model-view="${model.id}"
+                ${this.loading ? "disabled" : ""}
+              >View</button>
+            ` : ''}
+            ${isOwner && model.finalized ? `
+              <button
+                class="btn small ghost"
+                type="button"
+                data-model-edit="${model.id}"
+                ${isUpdating || this.loading ? "disabled" : ""}
+              >${isUpdating ? "Updating…" : "Edit"}</button>
+            ` : ''}
             ${isOwner && canFinalize ? `
               <button
                 class="btn small primary"
@@ -147,6 +212,14 @@ class PageModels extends HTMLElement {
                 data-model-finalize="${model.id}"
                 ${isFinalizing || this.loading ? "disabled" : ""}
               >${isFinalizing ? "Processing…" : "Finalize"}</button>
+            ` : ''}
+            ${isOwner ? `
+              <button
+                class="btn small ghost"
+                type="button"
+                data-model-delete="${model.id}"
+                ${isDeleting || this.loading ? "disabled" : ""}
+              >${isDeleting ? "Deleting…" : "Delete"}</button>
             ` : ''}
           </div>
         </td>
@@ -257,6 +330,172 @@ class PageModels extends HTMLElement {
     `;
   }
 
+  private renderSearchPanel(): string {
+    if (!this.showSearchPanel) {
+      return "";
+    }
+
+    return `
+      <section class="panel">
+        <h2>Search Models</h2>
+        <div class="form-group">
+          <label>
+            <input type="radio" name="searchMode" value="simple" ${this.searchMode === "simple" ? "checked" : ""} data-search-mode="simple" />
+            Simple Search
+          </label>
+          <label style="margin-left: 1rem;">
+            <input type="radio" name="searchMode" value="advanced" ${this.searchMode === "advanced" ? "checked" : ""} data-search-mode="advanced" />
+            Advanced Search
+          </label>
+        </div>
+
+        ${this.searchMode === "simple" ? `
+          <div class="form-group">
+            <label for="search-keyword">Keyword</label>
+            <input
+              type="text"
+              id="search-keyword"
+              name="keyword"
+              placeholder="Search in name, description, keywords..."
+              value="${this.searchData.keyword || ""}"
+            />
+          </div>
+        ` : `
+          <div class="form-group">
+            <label for="search-name">Model Name</label>
+            <input type="text" id="search-name" name="name" placeholder="Model name" value="${this.searchData.name || ""}" />
+          </div>
+          <div class="form-group">
+            <label for="search-description">Description</label>
+            <input type="text" id="search-description" name="description" placeholder="Description" value="${this.searchData.description || ""}" />
+          </div>
+          <div class="form-group">
+            <label for="search-mode-toggle">Search Mode</label>
+            <select id="search-mode-toggle" name="searchModeLogic">
+              <option value="AND" ${this.searchData.searchMode === "AND" ? "selected" : ""}>Match ALL criteria (AND)</option>
+              <option value="OR" ${this.searchData.searchMode === "OR" ? "selected" : ""}>Match ANY criteria (OR)</option>
+            </select>
+          </div>
+        `}
+
+        <div class="form-group" style="display: flex; gap: 0.5rem;">
+          <button class="btn primary" type="button" data-action="execute-search">Search</button>
+          <button class="btn ghost" type="button" data-action="clear-search">Clear</button>
+        </div>
+      </section>
+    `;
+  }
+
+  private renderViewModal(): string {
+    if (!this.showViewModal || !this.selectedModel) {
+      return "";
+    }
+
+    return `
+      <div class="modal" role="dialog" aria-modal="true">
+        <div class="modal__overlay" data-action="close-view-modal"></div>
+        <section class="modal__panel">
+          <header class="modal__header">
+            <h2>${this.selectedModel.name || "Model Details"}</h2>
+          </header>
+          <div class="modal__body">
+            <p><strong>Description:</strong> ${this.selectedModel.description || "N/A"}</p>
+            <p><strong>Data Description:</strong> ${this.selectedModel.dataDescription || "N/A"}</p>
+            <p><strong>Algorithm:</strong> ${this.selectedModel.algorithmName || "N/A"}</p>
+            <p><strong>Dataset:</strong> ${this.selectedModel.datasetName || "N/A"}</p>
+            <p><strong>Type:</strong> ${this.selectedModel.modelType || "N/A"}</p>
+            <p><strong>Category:</strong> ${this.selectedModel.categoryName || "N/A"}</p>
+            <p><strong>Access:</strong> ${this.selectedModel.accessibility || "N/A"}</p>
+            <p><strong>Keywords:</strong> ${this.selectedModel.keywords?.join(", ") || "None"}</p>
+            <p><strong>Owner:</strong> ${this.selectedModel.ownerUsername}</p>
+            <p><strong>Created:</strong> ${this.selectedModel.finalizationDate ? new Date(this.selectedModel.finalizationDate).toLocaleString() : "N/A"}</p>
+          </div>
+          <div class="modal__actions">
+            <button class="btn ghost" type="button" data-action="close-view-modal">Close</button>
+          </div>
+        </section>
+      </div>
+    `;
+  }
+
+  private renderEditModal(): string {
+    if (!this.showEditModal || !this.selectedModel) {
+      return "";
+    }
+
+    return `
+      <div class="modal" role="dialog" aria-modal="true">
+        <div class="modal__overlay" data-action="close-edit-modal"></div>
+        <section class="modal__panel">
+          <header class="modal__header">
+            <h2>Edit Model</h2>
+          </header>
+          <form id="editForm">
+            <div class="form-group">
+              <label for="edit-name">Model Name *</label>
+              <input type="text" id="edit-name" name="name" required value="${this.formData.name}" />
+            </div>
+            <div class="form-group">
+              <label for="edit-description">Description *</label>
+              <textarea id="edit-description" name="description" required maxlength="500">${this.formData.description}</textarea>
+            </div>
+            <div class="form-group">
+              <label for="edit-dataDescription">Data Description *</label>
+              <textarea id="edit-dataDescription" name="dataDescription" required maxlength="500">${this.formData.dataDescription}</textarea>
+            </div>
+            <div class="form-group">
+              <label for="edit-category">Category *</label>
+              <select id="edit-category" name="categoryId" required>
+                ${this.categories.map(cat => `
+                  <option value="${cat.id}" ${this.formData.categoryId === String(cat.id) ? "selected" : ""}>${cat.name}</option>
+                `).join("")}
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="edit-keywords">Keywords</label>
+              <input type="text" id="edit-keywords" name="keywords" value="${this.formData.keywords}" />
+            </div>
+            <div class="form-group">
+              <label>
+                <input type="checkbox" id="edit-isPublic" name="isPublic" ${this.formData.isPublic ? "checked" : ""} />
+                Make this model public
+              </label>
+            </div>
+          </form>
+          <div class="modal__actions">
+            <button class="btn ghost" type="button" data-action="close-edit-modal">Cancel</button>
+            <button class="btn primary" type="button" data-action="submit-edit">Save Changes</button>
+          </div>
+        </section>
+      </div>
+    `;
+  }
+
+  private renderDeleteModal(): string {
+    if (!this.showDeleteModal || !this.selectedModel) {
+      return "";
+    }
+
+    return `
+      <div class="modal" role="dialog" aria-modal="true">
+        <div class="modal__overlay" data-action="close-delete-modal"></div>
+        <section class="modal__panel">
+          <header class="modal__header">
+            <h2>Delete Model</h2>
+          </header>
+          <div class="modal__body">
+            <p>Are you sure you want to delete the model <strong>"${this.selectedModel.name || "Unnamed Model"}"</strong>?</p>
+            <p>This action cannot be undone.</p>
+          </div>
+          <div class="modal__actions">
+            <button class="btn ghost" type="button" data-action="close-delete-modal">Cancel</button>
+            <button class="btn primary" type="button" data-action="confirm-delete">Delete</button>
+          </div>
+        </section>
+      </div>
+    `;
+  }
+
   private bindEvents() {
     this.root.querySelectorAll<HTMLButtonElement>("[data-action='refresh']").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -311,6 +550,135 @@ class PageModels extends HTMLElement {
         void this.handleFinalize();
       });
     }
+
+    // Search toggle
+    this.root.querySelector<HTMLButtonElement>("[data-action='toggle-search']")?.addEventListener("click", () => {
+      this.showSearchPanel = !this.showSearchPanel;
+      this.render();
+    });
+
+    // Search mode toggle (simple/advanced)
+    this.root.querySelectorAll<HTMLInputElement>("[data-search-mode]").forEach((radio) => {
+      radio.addEventListener("change", (e) => {
+        const target = e.target as HTMLInputElement;
+        if (target.checked) {
+          this.searchMode = target.value as "simple" | "advanced";
+          this.render();
+        }
+      });
+    });
+
+    // Search input bindings
+    this.root.querySelector<HTMLInputElement>("#search-keyword")?.addEventListener("input", (e) => {
+      this.searchData.keyword = (e.target as HTMLInputElement).value;
+    });
+
+    this.root.querySelector<HTMLInputElement>("#search-name")?.addEventListener("input", (e) => {
+      this.searchData.name = (e.target as HTMLInputElement).value;
+    });
+
+    this.root.querySelector<HTMLInputElement>("#search-description")?.addEventListener("input", (e) => {
+      this.searchData.description = (e.target as HTMLInputElement).value;
+    });
+
+    this.root.querySelector<HTMLSelectElement>("#search-mode-toggle")?.addEventListener("change", (e) => {
+      this.searchData.searchMode = (e.target as HTMLSelectElement).value as "AND" | "OR";
+    });
+
+    // Execute search
+    this.root.querySelector<HTMLButtonElement>("[data-action='execute-search']")?.addEventListener("click", () => {
+      void this.handleSearch();
+    });
+
+    // Clear search
+    this.root.querySelector<HTMLButtonElement>("[data-action='clear-search']")?.addEventListener("click", () => {
+      this.searchData = { keyword: "", searchMode: "AND" };
+      this.filteredModels = [];
+      this.render();
+    });
+
+    // View model button
+    this.root.querySelectorAll<HTMLButtonElement>("[data-model-view]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const value = btn.dataset.modelView;
+        const id = value ? Number.parseInt(value, 10) : NaN;
+        if (!Number.isFinite(id)) {
+          return;
+        }
+        void this.openViewModal(id);
+      });
+    });
+
+    // Edit model button
+    this.root.querySelectorAll<HTMLButtonElement>("[data-model-edit]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const value = btn.dataset.modelEdit;
+        const id = value ? Number.parseInt(value, 10) : NaN;
+        if (!Number.isFinite(id)) {
+          return;
+        }
+        this.openEditModal(id);
+      });
+    });
+
+    // Delete model button
+    this.root.querySelectorAll<HTMLButtonElement>("[data-model-delete]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const value = btn.dataset.modelDelete;
+        const id = value ? Number.parseInt(value, 10) : NaN;
+        if (!Number.isFinite(id)) {
+          return;
+        }
+        this.openDeleteModal(id);
+      });
+    });
+
+    // View modal close
+    this.root.querySelectorAll<HTMLElement>("[data-action='close-view-modal']").forEach((el) => {
+      el.addEventListener("click", () => {
+        this.closeViewModal();
+      });
+    });
+
+    // Edit modal bindings
+    this.root.querySelectorAll<HTMLElement>("[data-action='close-edit-modal']").forEach((el) => {
+      el.addEventListener("click", () => {
+        this.closeEditModal();
+      });
+    });
+
+    this.root.querySelector<HTMLButtonElement>("[data-action='submit-edit']")?.addEventListener("click", () => {
+      void this.handleEdit();
+    });
+
+    const editForm = this.root.querySelector<HTMLFormElement>("#editForm");
+    if (editForm) {
+      editForm.addEventListener("input", (e) => {
+        const target = e.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+        const name = target.name as keyof typeof this.formData;
+        if (name && name in this.formData && name !== "isPublic") {
+          (this.formData as any)[name] = target.value;
+        }
+      });
+
+      editForm.addEventListener("change", (e) => {
+        const target = e.target as HTMLInputElement;
+        if (target.name === "isPublic" && target.type === "checkbox") {
+          this.formData.isPublic = target.checked;
+        }
+      });
+    }
+
+    // Delete modal bindings
+    this.root.querySelectorAll<HTMLElement>("[data-action='close-delete-modal']").forEach((el) => {
+      el.addEventListener("click", () => {
+        this.closeDeleteModal();
+      });
+    });
+
+    this.root.querySelector<HTMLButtonElement>("[data-action='confirm-delete']")?.addEventListener("click", () => {
+      void this.handleDelete();
+    });
   }
 
   private async loadData(force = false) {
@@ -423,6 +791,170 @@ class PageModels extends HTMLElement {
     } finally {
       this.busy.delete(this.selectedModelId);
       this.render();
+    }
+  }
+
+  private async openViewModal(modelId: number) {
+    try {
+      const token = getToken() ?? undefined;
+      this.selectedModel = await getModelById(modelId, token);
+      this.showViewModal = true;
+      this.render();
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Failed to load model";
+      window.alert(message);
+    }
+  }
+
+  private closeViewModal() {
+    this.showViewModal = false;
+    this.selectedModel = null;
+    this.render();
+  }
+
+  private openEditModal(modelId: number) {
+    const model = this.models.find(m => m.id === modelId);
+    if (!model) {
+      return;
+    }
+
+    this.selectedModelId = modelId;
+    this.selectedModel = model;
+    this.formData = {
+      name: model.name || "",
+      description: model.description || "",
+      dataDescription: model.dataDescription || "",
+      categoryId: model.categoryId ? String(model.categoryId) : "",
+      keywords: model.keywords ? model.keywords.join(", ") : "",
+      isPublic: model.accessibility === "PUBLIC"
+    };
+    this.showEditModal = true;
+    this.render();
+  }
+
+  private closeEditModal() {
+    this.showEditModal = false;
+    this.selectedModelId = null;
+    this.selectedModel = null;
+    this.formData = {
+      name: "",
+      description: "",
+      dataDescription: "",
+      categoryId: "",
+      keywords: "",
+      isPublic: false
+    };
+    this.render();
+  }
+
+  private async handleEdit() {
+    if (!this.selectedModelId) {
+      return;
+    }
+
+    const form = this.root.querySelector<HTMLFormElement>("#editForm");
+    if (!form || !form.checkValidity()) {
+      form?.reportValidity();
+      return;
+    }
+
+    this.busy.set(this.selectedModelId, "update");
+    this.render();
+
+    try {
+      const token = getToken() ?? undefined;
+
+      const keywords = this.formData.keywords
+        .split(",")
+        .map(k => k.trim())
+        .filter(k => k.length > 0 && k.length <= 25);
+
+      const request: UpdateModelRequest = {
+        name: this.formData.name,
+        description: this.formData.description,
+        dataDescription: this.formData.dataDescription,
+        categoryId: Number.parseInt(this.formData.categoryId, 10),
+        keywords,
+        isPublic: this.formData.isPublic
+      };
+
+      await updateModel(this.selectedModelId, request, token);
+
+      window.alert("Model updated successfully!");
+      this.closeEditModal();
+      await this.loadData(true);
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Failed to update model";
+      window.alert(message);
+    } finally {
+      this.busy.delete(this.selectedModelId);
+      this.render();
+    }
+  }
+
+  private openDeleteModal(modelId: number) {
+    const model = this.models.find(m => m.id === modelId);
+    if (!model) {
+      return;
+    }
+
+    this.selectedModelId = modelId;
+    this.selectedModel = model;
+    this.showDeleteModal = true;
+    this.render();
+  }
+
+  private closeDeleteModal() {
+    this.showDeleteModal = false;
+    this.selectedModelId = null;
+    this.selectedModel = null;
+    this.render();
+  }
+
+  private async handleDelete() {
+    if (!this.selectedModelId) {
+      return;
+    }
+
+    this.busy.set(this.selectedModelId, "delete");
+    this.render();
+
+    try {
+      const token = getToken() ?? undefined;
+      await deleteModel(this.selectedModelId, token);
+
+      window.alert("Model deleted successfully!");
+      this.closeDeleteModal();
+      await this.loadData(true);
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Failed to delete model";
+      window.alert(message);
+    } finally {
+      this.busy.delete(this.selectedModelId);
+      this.render();
+    }
+  }
+
+  private async handleSearch() {
+    try {
+      const token = getToken() ?? undefined;
+      this.filteredModels = await searchModels(this.searchData, token);
+      this.render();
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Failed to search models";
+      window.alert(message);
     }
   }
 
