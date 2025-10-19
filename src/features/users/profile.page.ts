@@ -24,7 +24,7 @@ export class PageProfile extends HTMLElement {
     this.render();
 
     try {
-      const token = getToken();
+      const token = getToken() ?? undefined;
       const currentUser = getUser<{ username: string }>();
 
       if (!currentUser?.username) {
@@ -232,7 +232,7 @@ export class PageProfile extends HTMLElement {
     this.render();
 
     try {
-      const token = getToken();
+      const token = getToken() ?? undefined;
       this.user = await updateUser(request, token);
       this.editing = false;
       this.success = "Profile updated successfully!";

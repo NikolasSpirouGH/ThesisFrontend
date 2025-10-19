@@ -40,7 +40,7 @@ export class PageUsers extends HTMLElement {
     this.render();
 
     try {
-      const token = getToken();
+      const token = getToken() ?? undefined;
       this.users = await fetchAllUsers(token);
       this.error = null;
     } catch (err: any) {
@@ -342,7 +342,7 @@ export class PageUsers extends HTMLElement {
     this.render();
 
     try {
-      const token = getToken();
+      const token = getToken() ?? undefined;
       await updateUserByAdmin(this.editingUser.username, request, token);
       this.busy.delete(this.editingUser.username);
       this.editingUser = null;
@@ -371,7 +371,7 @@ export class PageUsers extends HTMLElement {
     this.render();
 
     try {
-      const token = getToken();
+      const token = getToken() ?? undefined;
       await deleteUserByAdmin(this.deleteConfirmUser.username, reason, token);
       this.busy.delete(this.deleteConfirmUser.username);
       this.deleteConfirmUser = null;

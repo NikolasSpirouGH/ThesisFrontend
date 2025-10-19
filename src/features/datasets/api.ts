@@ -10,6 +10,7 @@ export type DatasetDTO = {
   uploadDate: string;
   status: "PUBLIC" | "PRIVATE" | "SHARED";
   description: string | null;
+  ownerUsername: string;
   completeTrainingCount: number;
   failedTrainingCount: number;
 };

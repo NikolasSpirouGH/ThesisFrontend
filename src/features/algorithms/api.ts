@@ -30,6 +30,26 @@ export type CreateCustomAlgorithmPayload = {
   dockerHubUrl?: string;
 };
 
+export type UpdateCustomAlgorithmPayload = {
+  name: string;
+  description: string;
+  version: string;
+  accessibility: AlgorithmAccessibility;
+  keywords: string[];
+};
+
+export type SearchCustomAlgorithmRequest = {
+  keyword?: string;
+  name?: string;
+  description?: string;
+  keywords?: string[];
+  accessibility?: AlgorithmAccessibility;
+  version?: string;
+  createdAtFrom?: string;
+  createdAtTo?: string;
+  searchMode?: "AND" | "OR";
+};
+
 type GenericResponse<T> = {
   dataHeader: T;
   message: string;
@@ -139,6 +159,130 @@ export async function fetchCustomAlgorithms(token?: string): Promise<CustomAlgor
     }
 
     return res.json() as Promise<CustomAlgorithm[]>;
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
+  }
+}
+
+export async function getCustomAlgorithmById(
+  id: number,
+  token?: string
+): Promise<CustomAlgorithm> {
+  try {
+    const headers: Record<string, string> = {
+      Accept: "application/json"
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const res = await fetch(`/api/algorithms/${id}`, {
+      method: "GET",
+      headers
+    });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      throw new Error(`Failed to load algorithm (${res.status})`);
+    }
+
+    return res.json() as Promise<CustomAlgorithm>;
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
+  }
+}
+
+export async function searchCustomAlgorithms(
+  request: SearchCustomAlgorithmRequest,
+  token?: string
+): Promise<CustomAlgorithm[]> {
+  try {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      "Content-Type": "application/json"
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const res = await fetch("/api/algorithms/search-custom-algorithms", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(request)
+    });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      throw new Error(`Failed to search algorithms (${res.status})`);
+    }
+
+    return res.json() as Promise<CustomAlgorithm[]>;
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
+  }
+}
+
+export async function updateCustomAlgorithm(
+  id: number,
+  payload: UpdateCustomAlgorithmPayload,
+  token?: string
+): Promise<void> {
+  try {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      "Content-Type": "application/json"
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const res = await fetch(`/api/algorithms/custom/update/${id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(payload)
+    });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      const isJson = res.headers.get("Content-Type")?.includes("application/json");
+      const body = isJson ? await res.json() : null;
+      const message = body?.message || body?.errorCode || `Failed to update algorithm (${res.status})`;
+      throw new Error(message);
+    }
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
+  }
+}
+
+export async function deleteCustomAlgorithm(id: number, token?: string): Promise<void> {
+  try {
+    const headers: Record<string, string> = {
+      Accept: "application/json"
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const res = await fetch(`/api/algorithms/custom/update/${id}`, {
+      method: "DELETE",
+      headers
+    });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      const isJson = res.headers.get("Content-Type")?.includes("application/json");
+      const body = isJson ? await res.json() : null;
+      const message = body?.message || body?.errorCode || `Failed to delete algorithm (${res.status})`;
+      throw new Error(message);
+    }
   } catch (error) {
     handleNetworkError(error);
     throw error;
