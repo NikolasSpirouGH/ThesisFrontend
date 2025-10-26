@@ -39,15 +39,18 @@ export type UpdateCustomAlgorithmPayload = {
 };
 
 export type SearchCustomAlgorithmRequest = {
-  keyword?: string;
-  name?: string;
+  simpleSearchInput?: string;  // Simple search - searches all fields
+  name?: string;               // Advanced search fields
   description?: string;
   keywords?: string[];
   accessibility?: AlgorithmAccessibility;
-  version?: string;
   createdAtFrom?: string;
   createdAtTo?: string;
   searchMode?: "AND" | "OR";
+};
+
+export type SearchAlgorithmRequest = {
+  keyword?: string;
 };
 
 type GenericResponse<T> = {
@@ -217,10 +220,48 @@ export async function searchCustomAlgorithms(
     handleUnauthorized(res);
 
     if (!res.ok) {
-      throw new Error(`Failed to search algorithms (${res.status})`);
+      throw new Error(`Failed to search custom algorithms (${res.status})`);
     }
 
     return res.json() as Promise<CustomAlgorithm[]>;
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
+  }
+}
+
+export async function searchAlgorithms(
+  request: SearchAlgorithmRequest,
+  token?: string
+): Promise<AlgorithmWeka[]> {
+  try {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded"
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    // Backend expects inputSearch as form parameter
+    const params = new URLSearchParams();
+    if (request.keyword) {
+      params.append("inputSearch", request.keyword);
+    }
+
+    const res = await fetch("/api/algorithms/search-weka-algorithms", {
+      method: "POST",
+      headers,
+      body: params.toString()
+    });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      throw new Error(`Failed to search predefined algorithms (${res.status})`);
+    }
+
+    return res.json() as Promise<AlgorithmWeka[]>;
   } catch (error) {
     handleNetworkError(error);
     throw error;

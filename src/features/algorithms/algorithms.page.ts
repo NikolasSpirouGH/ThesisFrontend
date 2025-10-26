@@ -1,5 +1,5 @@
-import type { AlgorithmWeka, CustomAlgorithm, SearchCustomAlgorithmRequest, UpdateCustomAlgorithmPayload } from "./api";
-import { fetchAlgorithms, fetchCustomAlgorithms, getCustomAlgorithmById, updateCustomAlgorithm, deleteCustomAlgorithm } from "./api";
+import type { AlgorithmWeka, CustomAlgorithm, SearchCustomAlgorithmRequest, SearchAlgorithmRequest, UpdateCustomAlgorithmPayload } from "./api";
+import { fetchAlgorithms, fetchCustomAlgorithms, searchAlgorithms, searchCustomAlgorithms, getCustomAlgorithmById, updateCustomAlgorithm, deleteCustomAlgorithm } from "./api";
 import { getToken } from "../../core/auth.store";
 import { UnauthorizedError } from "../../core/http";
 import styles from "./styles/algorithms.css?raw";
@@ -14,17 +14,30 @@ declare global {
 
 class PageAlgorithms extends HTMLElement {
   private root!: ShadowRoot;
+  private activeTab: "predefined" | "custom" = "predefined";
+
+  // Predefined algorithms state
   private algorithms: AlgorithmWeka[] = [];
+  private filteredAlgorithms: AlgorithmWeka[] = [];
+  private predefinedSearchData: SearchAlgorithmRequest = {
+    keyword: ""
+  };
+
+  // Custom algorithms state
   private customAlgorithms: CustomAlgorithm[] = [];
   private filteredCustomAlgorithms: CustomAlgorithm[] = [];
+  private customSearchMode: "simple" | "advanced" = "simple";
+  private customSearchData: SearchCustomAlgorithmRequest = {
+    simpleSearchInput: "",
+    searchMode: "AND"
+  };
+
   private loading = false;
   private error: string | null = null;
   private busy = new Map<number, BusyAction>();
   private showViewModal = false;
   private showEditModal = false;
   private showDeleteModal = false;
-  private showSearchPanel = false;
-  private searchMode: "simple" | "advanced" = "simple";
   private selectedAlgorithmId: number | null = null;
   private selectedAlgorithm: CustomAlgorithm | null = null;
   private formData = {
@@ -33,10 +46,6 @@ class PageAlgorithms extends HTMLElement {
     version: "",
     keywords: "",
     accessibility: "PRIVATE" as "PUBLIC" | "PRIVATE" | "SHARED"
-  };
-  private searchData: SearchCustomAlgorithmRequest = {
-    keyword: "",
-    searchMode: "AND"
   };
 
   connectedCallback() {
@@ -57,11 +66,10 @@ class PageAlgorithms extends HTMLElement {
           </div>
           <div class="hero__actions">
             <button class="btn primary" type="button" data-action="create">Upload custom algorithm</button>
-            <button class="btn ghost" type="button" data-action="toggle-search">${this.showSearchPanel ? "Hide Search" : "Show Search"}</button>
             <button class="btn ghost" type="button" data-action="refresh" ${this.loading ? "disabled" : ""}>${this.loading ? "Refreshing…" : "Refresh"}</button>
           </div>
         </header>
-        ${this.renderSearchPanel()}
+        ${this.renderTabs()}
         ${this.renderContent()}
         ${this.renderViewModal()}
         ${this.renderEditModal()}
@@ -70,6 +78,109 @@ class PageAlgorithms extends HTMLElement {
     `;
 
     this.bindEvents();
+  }
+
+  private renderTabs(): string {
+    return `
+      <div class="tabs-container">
+        <div class="tabs-nav">
+          <button
+            class="tab-btn ${this.activeTab === "predefined" ? "active" : ""}"
+            data-tab="predefined">
+            Predefined Algorithms
+          </button>
+          <button
+            class="tab-btn ${this.activeTab === "custom" ? "active" : ""}"
+            data-tab="custom">
+            Custom Algorithms
+          </button>
+        </div>
+        ${this.activeTab === "predefined" ? this.renderPredefinedSearchPanel() : this.renderCustomSearchPanel()}
+      </div>
+    `;
+  }
+
+  private renderPredefinedSearchPanel(): string {
+    return `
+      <div class="search-panel">
+        <div class="search-form">
+          <input
+            type="text"
+            id="predefined-keyword"
+            placeholder="Search by keyword in name or description..."
+            value="${this.predefinedSearchData.keyword || ""}">
+          <button class="btn primary" data-action="search-predefined">Search</button>
+          <button class="btn ghost" data-action="clear-predefined">Clear</button>
+        </div>
+      </div>
+    `;
+  }
+
+  private renderCustomSearchPanel(): string {
+    return `
+      <div class="search-panel">
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label>
+            <input type="radio" name="customSearchMode" value="simple" ${this.customSearchMode === "simple" ? "checked" : ""} data-custom-search-mode="simple" />
+            Simple Search
+          </label>
+          <label style="margin-left: 1rem;">
+            <input type="radio" name="customSearchMode" value="advanced" ${this.customSearchMode === "advanced" ? "checked" : ""} data-custom-search-mode="advanced" />
+            Advanced Search
+          </label>
+        </div>
+
+        ${this.customSearchMode === "simple" ? `
+          <div class="search-form">
+            <input
+              type="text"
+              id="custom-simple-search"
+              placeholder="Search in name, description, keywords, accessibility, date..."
+              value="${this.customSearchData.simpleSearchInput || ""}">
+            <button class="btn primary" data-action="search-custom">Search</button>
+            <button class="btn ghost" data-action="clear-custom">Clear</button>
+          </div>
+        ` : `
+          <div class="search-form" style="grid-template-columns: 1fr;">
+            <input
+              type="text"
+              id="custom-name"
+              placeholder="Algorithm Name"
+              value="${this.customSearchData.name || ""}">
+            <input
+              type="text"
+              id="custom-description"
+              placeholder="Description"
+              value="${this.customSearchData.description || ""}">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <input
+                type="date"
+                id="custom-created-from"
+                placeholder="Created From"
+                value="${this.customSearchData.createdAtFrom || ""}">
+              <input
+                type="date"
+                id="custom-created-to"
+                placeholder="Created To"
+                value="${this.customSearchData.createdAtTo || ""}">
+            </div>
+            <select id="custom-accessibility">
+              <option value="">All Accessibility</option>
+              <option value="PUBLIC" ${this.customSearchData.accessibility === "PUBLIC" ? "selected" : ""}>Public</option>
+              <option value="PRIVATE" ${this.customSearchData.accessibility === "PRIVATE" ? "selected" : ""}>Private</option>
+            </select>
+            <select id="custom-search-mode">
+              <option value="AND" ${this.customSearchData.searchMode === "AND" ? "selected" : ""}>Match All (AND)</option>
+              <option value="OR" ${this.customSearchData.searchMode === "OR" ? "selected" : ""}>Match Any (OR)</option>
+            </select>
+            <div style="display: flex; gap: 0.75rem;">
+              <button class="btn primary" data-action="search-custom">Search</button>
+              <button class="btn ghost" data-action="clear-custom">Clear</button>
+            </div>
+          </div>
+        `}
+      </div>
+    `;
   }
 
   private renderContent(): string {
@@ -91,76 +202,89 @@ class PageAlgorithms extends HTMLElement {
       `;
     }
 
-    if (this.algorithms.length === 0 && this.customAlgorithms.length === 0) {
+    // Render content based on active tab
+    return this.activeTab === "predefined"
+      ? this.renderPredefinedContent()
+      : this.renderCustomContent();
+  }
+
+  private renderPredefinedContent(): string {
+    if (this.algorithms.length === 0) {
       return `
         <section class="panel state empty">
-          <h2>No algorithms available yet</h2>
-          <p>Upload your first custom algorithm to see it listed here alongside the predefined Weka catalog.</p>
+          <h2>No predefined algorithms available</h2>
+          <p>No Weka algorithms found in the system.</p>
         </section>
       `;
     }
 
-    // Determine if a search is active
-    const isSearchActive = this.filteredCustomAlgorithms.length > 0 || this.hasSearchCriteria();
-    const displayCustomAlgorithms = isSearchActive ? this.filteredCustomAlgorithms : this.customAlgorithms;
-
-    let content = "";
-
-    // Custom algorithms section
-    if (this.customAlgorithms.length > 0) {
-      // Show "no results" message if search is active but no results
-      if (isSearchActive && this.filteredCustomAlgorithms.length === 0) {
-        content += `
-          <section class="panel state empty">
-            <h2>No algorithms match your search</h2>
-            <p>Try adjusting your search criteria.</p>
-          </section>
-        `;
-      } else {
-        content += `
-          <section class="panel">
-            <header class="panel__header">
-              <h2>Custom algorithms</h2>
-              <p>Your own algorithms and public algorithms from other users.</p>
-            </header>
-            <ul class="algo-list">
-              ${displayCustomAlgorithms
-                .map((algorithm) => this.renderCustomAlgorithmCard(algorithm))
-                .join("")}
-            </ul>
-          </section>
-        `;
-      }
-    }
-
-    // Predefined Weka algorithms section
-    if (this.algorithms.length > 0) {
-      content += `
-        <section class="panel">
-          <header class="panel__header">
-            <h2>Predefined Weka algorithms</h2>
-            <p>These algorithms are ready to use for standard training flows.</p>
-          </header>
-          <ul class="algo-list">
-            ${this.algorithms
-              .map(
-                (algorithm) => `
-                  <li class="algo-card">
-                    <div class="algo-card__body">
-                      <span class="algo-card__label">Weka Algorithm</span>
-                      <h3>${algorithm.name}</h3>
-                      <p>ID <strong>#${algorithm.id}</strong></p>
-                    </div>
-                  </li>
-                `
-              )
-              .join("")}
-          </ul>
+    if (this.filteredAlgorithms.length === 0) {
+      return `
+        <section class="panel state empty">
+          <h2>No algorithms match your search</h2>
+          <p>Try adjusting your search criteria.</p>
         </section>
       `;
     }
 
-    return content;
+    return `
+      <section class="panel">
+        <header class="panel__header">
+          <h2>Predefined Weka algorithms</h2>
+          <p>Found ${this.filteredAlgorithms.length} algorithm(s). These algorithms are ready to use for standard training flows.</p>
+        </header>
+        <ul class="algo-list">
+          ${this.filteredAlgorithms
+            .map(
+              (algorithm) => `
+                <li class="algo-card">
+                  <div class="algo-card__body">
+                    <span class="algo-card__label">Weka Algorithm</span>
+                    <h3>${algorithm.name}</h3>
+                    <p>ID <strong>#${algorithm.id}</strong></p>
+                  </div>
+                </li>
+              `
+            )
+            .join("")}
+        </ul>
+      </section>
+    `;
+  }
+
+  private renderCustomContent(): string {
+    if (this.customAlgorithms.length === 0) {
+      return `
+        <section class="panel state empty">
+          <h2>No custom algorithms available yet</h2>
+          <p>Upload your first custom algorithm to see it listed here.</p>
+          <button class="btn primary" type="button" data-action="create">Upload custom algorithm</button>
+        </section>
+      `;
+    }
+
+    if (this.filteredCustomAlgorithms.length === 0) {
+      return `
+        <section class="panel state empty">
+          <h2>No algorithms match your search</h2>
+          <p>Try adjusting your search criteria.</p>
+        </section>
+      `;
+    }
+
+    return `
+      <section class="panel">
+        <header class="panel__header">
+          <h2>Custom algorithms</h2>
+          <p>Found ${this.filteredCustomAlgorithms.length} algorithm(s). Your own algorithms and public algorithms from other users.</p>
+        </header>
+        <ul class="algo-list">
+          ${this.filteredCustomAlgorithms
+            .map((algorithm) => this.renderCustomAlgorithmCard(algorithm))
+            .join("")}
+        </ul>
+      </section>
+    `;
   }
 
   private renderCustomAlgorithmCard(algorithm: CustomAlgorithm): string {
@@ -168,12 +292,14 @@ class PageAlgorithms extends HTMLElement {
     const isUpdating = busyState === "update";
     const isDeleting = busyState === "delete";
 
+    const createdDate = algorithm.createdAt ? new Date(algorithm.createdAt).toLocaleDateString() : 'N/A';
+
     return `
       <li class="algo-card ${algorithm.isOwner ? 'algo-card--owned' : ''}">
         <div class="algo-card__body">
           <span class="algo-card__label">${algorithm.isOwner ? 'Your Algorithm' : 'Public Algorithm'}</span>
           <h3>${algorithm.name}</h3>
-          <p>Version <strong>${algorithm.version}</strong> • by <strong>${algorithm.ownerUsername}</strong></p>
+          <p>Version <strong>${algorithm.version}</strong> • by <strong>${algorithm.ownerUsername}</strong> • Created: <strong>${createdDate}</strong></p>
           ${algorithm.description ? `<p class="algo-card__desc">${algorithm.description}</p>` : ''}
           <div class="algo-card__tags">
             ${algorithm.keywords.map(keyword => `<span class="tag">${keyword}</span>`).join('')}
@@ -208,87 +334,6 @@ class PageAlgorithms extends HTMLElement {
     `;
   }
 
-  private hasSearchCriteria(): boolean {
-    return !!(
-      this.searchData.keyword ||
-      this.searchData.name ||
-      this.searchData.description ||
-      (this.searchData.keywords && this.searchData.keywords.length > 0) ||
-      this.searchData.accessibility ||
-      this.searchData.version ||
-      this.searchData.createdAtFrom ||
-      this.searchData.createdAtTo
-    );
-  }
-
-  private renderSearchPanel(): string {
-    if (!this.showSearchPanel) {
-      return "";
-    }
-
-    return `
-      <section class="panel">
-        <h2>Search Algorithms</h2>
-        <div class="form-group">
-          <label>
-            <input type="radio" name="searchMode" value="simple" ${this.searchMode === "simple" ? "checked" : ""} data-search-mode="simple" />
-            Simple Search
-          </label>
-          <label style="margin-left: 1rem;">
-            <input type="radio" name="searchMode" value="advanced" ${this.searchMode === "advanced" ? "checked" : ""} data-search-mode="advanced" />
-            Advanced Search
-          </label>
-        </div>
-
-        ${this.searchMode === "simple" ? `
-          <div class="form-group">
-            <label for="search-keyword">Keyword</label>
-            <input
-              type="text"
-              id="search-keyword"
-              name="keyword"
-              placeholder="Search in name, description, keywords..."
-              value="${this.searchData.keyword || ""}"
-            />
-          </div>
-        ` : `
-          <div class="form-group">
-            <label for="search-name">Algorithm Name</label>
-            <input type="text" id="search-name" name="name" placeholder="Algorithm name" value="${this.searchData.name || ""}" />
-          </div>
-          <div class="form-group">
-            <label for="search-description">Description</label>
-            <input type="text" id="search-description" name="description" placeholder="Description" value="${this.searchData.description || ""}" />
-          </div>
-          <div class="form-group">
-            <label for="search-version">Version</label>
-            <input type="text" id="search-version" name="version" placeholder="Version" value="${this.searchData.version || ""}" />
-          </div>
-          <div class="form-group">
-            <label for="search-accessibility">Accessibility</label>
-            <select id="search-accessibility" name="accessibility">
-              <option value="">All</option>
-              <option value="PUBLIC" ${this.searchData.accessibility === "PUBLIC" ? "selected" : ""}>Public</option>
-              <option value="PRIVATE" ${this.searchData.accessibility === "PRIVATE" ? "selected" : ""}>Private</option>
-              <option value="SHARED" ${this.searchData.accessibility === "SHARED" ? "selected" : ""}>Shared</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="search-mode-toggle">Search Mode</label>
-            <select id="search-mode-toggle" name="searchModeLogic">
-              <option value="AND" ${this.searchData.searchMode === "AND" ? "selected" : ""}>Match ALL criteria (AND)</option>
-              <option value="OR" ${this.searchData.searchMode === "OR" ? "selected" : ""}>Match ANY criteria (OR)</option>
-            </select>
-          </div>
-        `}
-
-        <div class="form-group" style="display: flex; gap: 0.5rem;">
-          <button class="btn primary" type="button" data-action="execute-search">Search</button>
-          <button class="btn ghost" type="button" data-action="clear-search">Clear</button>
-        </div>
-      </section>
-    `;
-  }
 
   private renderViewModal(): string {
     if (!this.showViewModal || !this.selectedAlgorithm) {
@@ -411,12 +456,15 @@ class PageAlgorithms extends HTMLElement {
       ]);
 
       this.algorithms = wekaList.sort((a, b) => a.name.localeCompare(b.name));
+      this.filteredAlgorithms = [...this.algorithms]; // Initially show all
+
       this.customAlgorithms = customList.sort((a, b) => {
         // Sort by ownership first (user's algorithms first), then by name
         if (a.isOwner && !b.isOwner) return -1;
         if (!a.isOwner && b.isOwner) return 1;
         return a.name.localeCompare(b.name);
       });
+      this.filteredCustomAlgorithms = [...this.customAlgorithms]; // Initially show all
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to load algorithms.";
       this.error = message;
@@ -426,7 +474,127 @@ class PageAlgorithms extends HTMLElement {
     }
   }
 
+  private switchTab(tab: "predefined" | "custom") {
+    this.activeTab = tab;
+    this.render();
+  }
+
+  private async searchPredefinedAlgorithms() {
+    try {
+      const token = getToken();
+      this.filteredAlgorithms = await searchAlgorithms(this.predefinedSearchData, token);
+      this.render();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to search algorithms";
+      console.error(message, error);
+      this.error = message;
+      this.render();
+    }
+  }
+
+  private async searchCustomAlgorithmsHandler() {
+    try {
+      const token = getToken();
+      if (!token) return;
+
+      this.filteredCustomAlgorithms = await searchCustomAlgorithms(this.customSearchData, token);
+      this.render();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to search custom algorithms";
+      console.error(message, error);
+      this.error = message;
+      this.render();
+    }
+  }
+
+  private clearPredefinedSearch() {
+    this.predefinedSearchData = { keyword: "" };
+    this.filteredAlgorithms = [...this.algorithms];
+    this.render();
+  }
+
+  private clearCustomSearch() {
+    this.customSearchData = { simpleSearchInput: "", searchMode: "AND" };
+    this.filteredCustomAlgorithms = [...this.customAlgorithms];
+    this.render();
+  }
+
   private bindEvents() {
+    // Tab switching
+    this.root.querySelectorAll<HTMLButtonElement>(".tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const tab = btn.dataset.tab as "predefined" | "custom";
+        if (tab) {
+          this.switchTab(tab);
+        }
+      });
+    });
+
+    // Predefined search inputs
+    this.root.querySelector<HTMLInputElement>("#predefined-keyword")?.addEventListener("input", (e) => {
+      this.predefinedSearchData.keyword = (e.target as HTMLInputElement).value;
+    });
+
+    // Custom search mode toggle (simple/advanced)
+    this.root.querySelectorAll<HTMLInputElement>("[data-custom-search-mode]").forEach((radio) => {
+      radio.addEventListener("change", (e) => {
+        const target = e.target as HTMLInputElement;
+        if (target.checked) {
+          this.customSearchMode = target.value as "simple" | "advanced";
+          this.render();
+        }
+      });
+    });
+
+    // Custom search inputs - simple mode
+    this.root.querySelector<HTMLInputElement>("#custom-simple-search")?.addEventListener("input", (e) => {
+      this.customSearchData.simpleSearchInput = (e.target as HTMLInputElement).value;
+    });
+
+    // Custom search inputs - advanced mode
+    this.root.querySelector<HTMLInputElement>("#custom-name")?.addEventListener("input", (e) => {
+      this.customSearchData.name = (e.target as HTMLInputElement).value;
+    });
+
+    this.root.querySelector<HTMLInputElement>("#custom-description")?.addEventListener("input", (e) => {
+      this.customSearchData.description = (e.target as HTMLInputElement).value;
+    });
+
+    this.root.querySelector<HTMLInputElement>("#custom-created-from")?.addEventListener("change", (e) => {
+      this.customSearchData.createdAtFrom = (e.target as HTMLInputElement).value;
+    });
+
+    this.root.querySelector<HTMLInputElement>("#custom-created-to")?.addEventListener("change", (e) => {
+      this.customSearchData.createdAtTo = (e.target as HTMLInputElement).value;
+    });
+
+    this.root.querySelector<HTMLSelectElement>("#custom-accessibility")?.addEventListener("change", (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      this.customSearchData.accessibility = value ? (value as "PUBLIC" | "PRIVATE") : undefined;
+    });
+
+    this.root.querySelector<HTMLSelectElement>("#custom-search-mode")?.addEventListener("change", (e) => {
+      this.customSearchData.searchMode = (e.target as HTMLSelectElement).value as "AND" | "OR";
+    });
+
+    // Search buttons
+    this.root.querySelector<HTMLButtonElement>("[data-action='search-predefined']")?.addEventListener("click", () => {
+      void this.searchPredefinedAlgorithms();
+    });
+
+    this.root.querySelector<HTMLButtonElement>("[data-action='search-custom']")?.addEventListener("click", () => {
+      void this.searchCustomAlgorithmsHandler();
+    });
+
+    // Clear buttons
+    this.root.querySelector<HTMLButtonElement>("[data-action='clear-predefined']")?.addEventListener("click", () => {
+      this.clearPredefinedSearch();
+    });
+
+    this.root.querySelector<HTMLButtonElement>("[data-action='clear-custom']")?.addEventListener("click", () => {
+      this.clearCustomSearch();
+    });
+
     // Create button
     this.root.querySelector<HTMLButtonElement>("[data-action='create']")?.addEventListener("click", () => {
       window.location.hash = "#/algorithms/create";
@@ -441,60 +609,6 @@ class PageAlgorithms extends HTMLElement {
       });
     });
 
-    // Toggle search panel
-    this.root.querySelector<HTMLButtonElement>("[data-action='toggle-search']")?.addEventListener("click", () => {
-      this.showSearchPanel = !this.showSearchPanel;
-      this.render();
-    });
-
-    // Search mode toggle (simple/advanced)
-    this.root.querySelectorAll<HTMLInputElement>("[data-search-mode]").forEach((radio) => {
-      radio.addEventListener("change", (e) => {
-        const target = e.target as HTMLInputElement;
-        if (target.checked) {
-          this.searchMode = target.value as "simple" | "advanced";
-          this.render();
-        }
-      });
-    });
-
-    // Search input bindings
-    this.root.querySelector<HTMLInputElement>("#search-keyword")?.addEventListener("input", (e) => {
-      this.searchData.keyword = (e.target as HTMLInputElement).value;
-    });
-
-    this.root.querySelector<HTMLInputElement>("#search-name")?.addEventListener("input", (e) => {
-      this.searchData.name = (e.target as HTMLInputElement).value;
-    });
-
-    this.root.querySelector<HTMLInputElement>("#search-description")?.addEventListener("input", (e) => {
-      this.searchData.description = (e.target as HTMLInputElement).value;
-    });
-
-    this.root.querySelector<HTMLInputElement>("#search-version")?.addEventListener("input", (e) => {
-      this.searchData.version = (e.target as HTMLInputElement).value;
-    });
-
-    this.root.querySelector<HTMLSelectElement>("#search-accessibility")?.addEventListener("change", (e) => {
-      const value = (e.target as HTMLSelectElement).value;
-      this.searchData.accessibility = value ? (value as "PUBLIC" | "PRIVATE" | "SHARED") : undefined;
-    });
-
-    this.root.querySelector<HTMLSelectElement>("#search-mode-toggle")?.addEventListener("change", (e) => {
-      this.searchData.searchMode = (e.target as HTMLSelectElement).value as "AND" | "OR";
-    });
-
-    // Execute search
-    this.root.querySelector<HTMLButtonElement>("[data-action='execute-search']")?.addEventListener("click", () => {
-      void this.handleSearch();
-    });
-
-    // Clear search
-    this.root.querySelector<HTMLButtonElement>("[data-action='clear-search']")?.addEventListener("click", () => {
-      this.searchData = { keyword: "", searchMode: "AND" };
-      this.filteredCustomAlgorithms = [];
-      this.render();
-    });
 
     // View algorithm button
     this.root.querySelectorAll<HTMLButtonElement>("[data-algo-view]").forEach((btn) => {
@@ -573,55 +687,6 @@ class PageAlgorithms extends HTMLElement {
     });
   }
 
-  private async handleSearch() {
-    try {
-      // Perform client-side filtering
-      // Note: Backend search endpoint is also available at /api/algorithms/search-custom-algorithms
-      this.filteredCustomAlgorithms = this.customAlgorithms.filter((algo) => {
-        if (this.searchMode === "simple") {
-          const keyword = this.searchData.keyword?.toLowerCase() || "";
-          if (!keyword) return true;
-
-          return (
-            algo.name.toLowerCase().includes(keyword) ||
-            algo.description?.toLowerCase().includes(keyword) ||
-            algo.keywords.some(k => k.toLowerCase().includes(keyword)) ||
-            algo.version.toLowerCase().includes(keyword)
-          );
-        } else {
-          // Advanced search with AND/OR logic
-          const matches: boolean[] = [];
-
-          if (this.searchData.name) {
-            matches.push(algo.name.toLowerCase().includes(this.searchData.name.toLowerCase()));
-          }
-          if (this.searchData.description) {
-            matches.push(algo.description?.toLowerCase().includes(this.searchData.description.toLowerCase()) || false);
-          }
-          if (this.searchData.version) {
-            matches.push(algo.version.toLowerCase().includes(this.searchData.version.toLowerCase()));
-          }
-          if (this.searchData.accessibility) {
-            matches.push(algo.accessibility === this.searchData.accessibility);
-          }
-
-          if (matches.length === 0) return true;
-
-          return this.searchData.searchMode === "AND"
-            ? matches.every(m => m)
-            : matches.some(m => m);
-        }
-      });
-
-      this.render();
-    } catch (err) {
-      if (err instanceof UnauthorizedError) {
-        return;
-      }
-      const message = err instanceof Error ? err.message : "Failed to search algorithms";
-      window.alert(message);
-    }
-  }
 
   private async openViewModal(algorithmId: number) {
     try {
