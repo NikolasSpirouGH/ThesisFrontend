@@ -37,8 +37,8 @@ class PageModels extends HTMLElement {
     isPublic: false
   };
   private searchData: SearchModelRequest = {
-    keyword: "",
-    searchMode: "AND"
+    simpleSearchInput: "",
+    searchMode: "OR"
   };
 
   connectedCallback() {
@@ -142,17 +142,15 @@ class PageModels extends HTMLElement {
 
   private hasSearchCriteria(): boolean {
     return !!(
-      this.searchData.keyword ||
+      this.searchData.simpleSearchInput ||
       this.searchData.name ||
       this.searchData.description ||
       (this.searchData.keywords && this.searchData.keywords.length > 0) ||
-      (this.searchData.categoryIds && this.searchData.categoryIds.length > 0) ||
+      this.searchData.category ||
       this.searchData.accessibility ||
       this.searchData.modelType ||
-      this.searchData.trainingDateFrom ||
-      this.searchData.trainingDateTo ||
-      this.searchData.creationDateFrom ||
-      this.searchData.creationDateTo
+      this.searchData.createdAtFrom ||
+      this.searchData.createdAtTo
     );
   }
 
@@ -355,10 +353,11 @@ class PageModels extends HTMLElement {
             <input
               type="text"
               id="search-keyword"
-              name="keyword"
+              name="simpleSearchInput"
               placeholder="Search in name, description, keywords..."
-              value="${this.searchData.keyword || ""}"
+              value="${this.searchData.simpleSearchInput || ""}"
             />
+            <small>Search across all model metadata</small>
           </div>
         ` : `
           <div class="form-group">
@@ -368,6 +367,40 @@ class PageModels extends HTMLElement {
           <div class="form-group">
             <label for="search-description">Description</label>
             <input type="text" id="search-description" name="description" placeholder="Description" value="${this.searchData.description || ""}" />
+          </div>
+          <div class="form-group">
+            <label for="search-keywords">Keywords</label>
+            <input type="text" id="search-keywords" name="keywords" placeholder="comma, separated, keywords" value="${this.searchData.keywords?.join(", ") || ""}" />
+            <small>Comma-separated keywords</small>
+          </div>
+          <div class="form-group">
+            <label for="search-category">Category</label>
+            <input type="text" id="search-category" name="category" placeholder="Category name" value="${this.searchData.category || ""}" />
+          </div>
+          <div class="form-group">
+            <label for="search-accessibility">Accessibility</label>
+            <select id="search-accessibility" name="accessibility">
+              <option value="">All</option>
+              <option value="PUBLIC" ${this.searchData.accessibility === "PUBLIC" ? "selected" : ""}>Public</option>
+              <option value="PRIVATE" ${this.searchData.accessibility === "PRIVATE" ? "selected" : ""}>Private</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="search-model-type">Model Type</label>
+            <select id="search-model-type" name="modelType">
+              <option value="">All</option>
+              <option value="CLASSIFICATION" ${this.searchData.modelType === "CLASSIFICATION" ? "selected" : ""}>Classification</option>
+              <option value="REGRESSION" ${this.searchData.modelType === "REGRESSION" ? "selected" : ""}>Regression</option>
+              <option value="CLUSTERING" ${this.searchData.modelType === "CLUSTERING" ? "selected" : ""}>Clustering</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="search-created-from">Created From</label>
+            <input type="date" id="search-created-from" name="createdAtFrom" value="${this.searchData.createdAtFrom || ""}" />
+          </div>
+          <div class="form-group">
+            <label for="search-created-to">Created To</label>
+            <input type="date" id="search-created-to" name="createdAtTo" value="${this.searchData.createdAtTo || ""}" />
           </div>
           <div class="form-group">
             <label for="search-mode-toggle">Search Mode</label>
@@ -570,7 +603,7 @@ class PageModels extends HTMLElement {
 
     // Search input bindings
     this.root.querySelector<HTMLInputElement>("#search-keyword")?.addEventListener("input", (e) => {
-      this.searchData.keyword = (e.target as HTMLInputElement).value;
+      this.searchData.simpleSearchInput = (e.target as HTMLInputElement).value;
     });
 
     this.root.querySelector<HTMLInputElement>("#search-name")?.addEventListener("input", (e) => {
@@ -579,6 +612,33 @@ class PageModels extends HTMLElement {
 
     this.root.querySelector<HTMLInputElement>("#search-description")?.addEventListener("input", (e) => {
       this.searchData.description = (e.target as HTMLInputElement).value;
+    });
+
+    this.root.querySelector<HTMLInputElement>("#search-keywords")?.addEventListener("input", (e) => {
+      const value = (e.target as HTMLInputElement).value;
+      this.searchData.keywords = value ? value.split(",").map(k => k.trim()).filter(k => k) : undefined;
+    });
+
+    this.root.querySelector<HTMLInputElement>("#search-category")?.addEventListener("input", (e) => {
+      this.searchData.category = (e.target as HTMLInputElement).value;
+    });
+
+    this.root.querySelector<HTMLSelectElement>("#search-accessibility")?.addEventListener("change", (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      this.searchData.accessibility = value || undefined;
+    });
+
+    this.root.querySelector<HTMLSelectElement>("#search-model-type")?.addEventListener("change", (e) => {
+      const value = (e.target as HTMLSelectElement).value;
+      this.searchData.modelType = value || undefined;
+    });
+
+    this.root.querySelector<HTMLInputElement>("#search-created-from")?.addEventListener("change", (e) => {
+      this.searchData.createdAtFrom = (e.target as HTMLInputElement).value;
+    });
+
+    this.root.querySelector<HTMLInputElement>("#search-created-to")?.addEventListener("change", (e) => {
+      this.searchData.createdAtTo = (e.target as HTMLInputElement).value;
     });
 
     this.root.querySelector<HTMLSelectElement>("#search-mode-toggle")?.addEventListener("change", (e) => {
@@ -592,7 +652,7 @@ class PageModels extends HTMLElement {
 
     // Clear search
     this.root.querySelector<HTMLButtonElement>("[data-action='clear-search']")?.addEventListener("click", () => {
-      this.searchData = { keyword: "", searchMode: "AND" };
+      this.searchData = { simpleSearchInput: "", searchMode: "OR" };
       this.filteredModels = [];
       this.render();
     });
@@ -697,7 +757,7 @@ class PageModels extends HTMLElement {
       ]);
 
       this.models = [...models].sort((a, b) =>
-        this.dateValue(b.finishedAt) - this.dateValue(a.finishedAt)
+        this.dateValue(b.createdAt) - this.dateValue(a.createdAt)
       );
       this.categories = categories;
     } catch (err) {

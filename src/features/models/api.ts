@@ -15,7 +15,7 @@ export type ModelItem = {
   categoryName: string | null;
   categoryId: number | null;
   keywords: string[] | null;
-  finishedAt: string | null;
+  createdAt: string | null;
   finalizationDate: string | null;
   finalized: boolean;
   ownerUsername: string;
@@ -48,17 +48,15 @@ export type UpdateModelRequest = {
 };
 
 export type SearchModelRequest = {
-  keyword?: string;
+  simpleSearchInput?: string;
   name?: string;
   description?: string;
   keywords?: string[];
-  categoryIds?: number[];
+  category?: string;
   accessibility?: string;
   modelType?: string;
-  trainingDateFrom?: string;
-  trainingDateTo?: string;
-  creationDateFrom?: string;
-  creationDateTo?: string;
+  createdAtFrom?: string;
+  createdAtTo?: string;
   searchMode?: "AND" | "OR";
 };
 
