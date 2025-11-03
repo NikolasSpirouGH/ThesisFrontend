@@ -311,7 +311,7 @@ export async function deleteCustomAlgorithm(id: number, token?: string): Promise
       headers.Authorization = `Bearer ${token}`;
     }
 
-    const res = await fetch(`/api/algorithms/custom/update/${id}`, {
+    const res = await fetch(`/api/algorithms/custom/delete/${id}`, {
       method: "DELETE",
       headers
     });
