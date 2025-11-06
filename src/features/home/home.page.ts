@@ -80,12 +80,16 @@ export class PageHome extends HTMLElement {
               <span class="chip chip--muted">${roleLabel}</span>
             </div>
             <div class="hero__actions">
-              <button class="btn ghost" type="button" data-route="/profile/edit">Edit Profile</button>
-              <button class="btn ghost" type="button" data-route="/profile/change-password">Change Password</button>
-              <button class="btn ghost" type="button" data-action="logout">Logout</button>
-            </div>
-            <div class="hero__danger">
-              <button class="btn ghost danger" type="button" data-route="/profile/delete">Delete Account</button>
+              <div class="profile-dropdown">
+                <button class="btn ghost" type="button" data-toggle-profile>My Profile ▼</button>
+                <div class="dropdown-menu" data-profile-menu>
+                  <button class="dropdown-item" type="button" data-route="/profile/edit">Edit Profile</button>
+                  <button class="dropdown-item" type="button" data-route="/profile/change-password">Change Password</button>
+                  <button class="dropdown-item dropdown-item--danger" type="button" data-route="/profile/delete">Delete Account</button>
+                  <div class="dropdown-divider"></div>
+                  <button class="dropdown-item" type="button" data-action="logout">Logout</button>
+                </div>
+              </div>
             </div>
           </div>
         </header>
@@ -134,6 +138,20 @@ export class PageHome extends HTMLElement {
 
     const logout = this.root.querySelector<HTMLButtonElement>("[data-action='logout']");
     logout?.addEventListener("click", () => this.logout());
+
+    // Profile dropdown toggle
+    const profileToggle = this.root.querySelector<HTMLButtonElement>("[data-toggle-profile]");
+    const profileMenu = this.root.querySelector<HTMLElement>("[data-profile-menu]");
+
+    profileToggle?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      profileMenu?.classList.toggle("show");
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener("click", () => {
+      profileMenu?.classList.remove("show");
+    });
   }
 
   private notifySoon(feature: string) {

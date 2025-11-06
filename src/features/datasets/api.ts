@@ -217,6 +217,9 @@ export async function deleteDataset(datasetId: number, token?: string): Promise<
       const message = await normaliseError(res, "Failed to delete dataset");
       throw new Error(`${res.status}: ${message}`);
     }
+
+    // Consume the response body to prevent hanging
+    await res.json();
   } catch (error) {
     handleNetworkError(error);
     throw error;

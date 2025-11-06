@@ -759,13 +759,16 @@ class PageAlgorithms extends HTMLElement {
       return;
     }
 
+    // Save algorithmId before it gets cleared by closeEditModal
+    const algorithmId = this.selectedAlgorithmId;
+
     const form = this.root.querySelector<HTMLFormElement>("#editForm");
     if (!form || !form.checkValidity()) {
       form?.reportValidity();
       return;
     }
 
-    this.busy.set(this.selectedAlgorithmId, "update");
+    this.busy.set(algorithmId, "update");
     this.render();
 
     try {
@@ -784,7 +787,7 @@ class PageAlgorithms extends HTMLElement {
         accessibility: this.formData.accessibility
       };
 
-      await updateCustomAlgorithm(this.selectedAlgorithmId, payload, token);
+      await updateCustomAlgorithm(algorithmId, payload, token);
 
       window.alert("Algorithm updated successfully!");
       this.closeEditModal();
@@ -796,7 +799,7 @@ class PageAlgorithms extends HTMLElement {
       const message = err instanceof Error ? err.message : "Failed to update algorithm";
       window.alert(message);
     } finally {
-      this.busy.delete(this.selectedAlgorithmId);
+      this.busy.delete(algorithmId);
       this.render();
     }
   }
@@ -825,12 +828,15 @@ class PageAlgorithms extends HTMLElement {
       return;
     }
 
-    this.busy.set(this.selectedAlgorithmId, "delete");
+    // Save algorithmId before it gets cleared by closeDeleteModal
+    const algorithmId = this.selectedAlgorithmId;
+
+    this.busy.set(algorithmId, "delete");
     this.render();
 
     try {
       const token = getToken() ?? undefined;
-      await deleteCustomAlgorithm(this.selectedAlgorithmId, token);
+      await deleteCustomAlgorithm(algorithmId, token);
 
       window.alert("Algorithm deleted successfully!");
       this.closeDeleteModal();
@@ -842,7 +848,7 @@ class PageAlgorithms extends HTMLElement {
       const message = err instanceof Error ? err.message : "Failed to delete algorithm";
       window.alert(message);
     } finally {
-      this.busy.delete(this.selectedAlgorithmId);
+      this.busy.delete(algorithmId);
       this.render();
     }
   }

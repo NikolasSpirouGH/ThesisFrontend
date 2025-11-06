@@ -296,6 +296,7 @@ export async function updateCustomAlgorithm(
       const message = body?.message || body?.errorCode || `Failed to update algorithm (${res.status})`;
       throw new Error(message);
     }
+    await res.json();
   } catch (error) {
     handleNetworkError(error);
     throw error;
@@ -324,6 +325,9 @@ export async function deleteCustomAlgorithm(id: number, token?: string): Promise
       const message = body?.message || body?.errorCode || `Failed to delete algorithm (${res.status})`;
       throw new Error(message);
     }
+
+    // Consume the response body to prevent hanging
+    await res.json();
   } catch (error) {
     handleNetworkError(error);
     throw error;

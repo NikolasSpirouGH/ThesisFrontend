@@ -39,7 +39,7 @@ export async function fetchAllUsers(token?: string): Promise<UserDTO[]> {
       ...authHeader(token)
     };
 
-    const res = await fetch("/api/users", { headers });
+    const res = await fetch("/api/users/all", { headers });
 
     handleUnauthorized(res);
 
@@ -166,6 +166,9 @@ export async function deleteUserByAdmin(
       const message = await normaliseError(res, "Failed to delete user");
       throw new Error(`${res.status}: ${message}`);
     }
+
+    // Consume the response body to prevent hanging
+    await res.json();
   } catch (error) {
     handleNetworkError(error);
     throw error;

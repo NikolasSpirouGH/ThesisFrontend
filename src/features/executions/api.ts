@@ -144,6 +144,9 @@ export async function deleteExecution(executionId: number, token?: string): Prom
       const text = await res.text().catch(() => '');
       throw new Error(`Status ${res.status}: ${text || res.statusText}`);
     }
+
+    // Consume the response body to prevent hanging
+    await res.json();
   } catch (error) {
     handleNetworkError(error);
     throw error;

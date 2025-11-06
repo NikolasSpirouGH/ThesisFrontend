@@ -194,6 +194,9 @@ export async function updateModel(
       const message = await normaliseError(res, "Failed to update model");
       throw new Error(`${res.status}: ${message}`);
     }
+
+    // Consume the response body to prevent hanging
+    await res.text();
   } catch (error) {
     handleNetworkError(error);
     throw error;
@@ -209,7 +212,7 @@ export async function deleteModel(
       ...authHeader(token)
     };
 
-    const res = await fetch(`/api/models/${modelId}`, {
+    const res = await fetch(`/api/models/delete/${modelId}`, {
       method: "DELETE",
       headers
     });
@@ -220,6 +223,9 @@ export async function deleteModel(
       const message = await normaliseError(res, "Failed to delete model");
       throw new Error(`${res.status}: ${message}`);
     }
+
+    // Consume the response body to prevent hanging
+    await res.text();
   } catch (error) {
     handleNetworkError(error);
     throw error;

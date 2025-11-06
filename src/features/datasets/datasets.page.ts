@@ -198,19 +198,27 @@ class PageDatasets extends HTMLElement {
           </div>
         </td>
         <td>
-          <div class="row-actions">
+          <div class="actions-dropdown">
             <button
               class="btn small ghost"
               type="button"
-              data-dataset-download="${dataset.id}"
-              ${isDownloading || this.loading ? "disabled" : ""}
-            >${isDownloading ? "Downloading…" : "Download"}</button>
-            <button
-              class="btn small danger"
-              type="button"
-              data-dataset-delete="${dataset.id}"
-              ${isDeleting || this.loading ? "disabled" : ""}
-            >${isDeleting ? "Deleting…" : "Delete"}</button>
+              data-toggle-actions="${dataset.id}"
+              ${this.loading ? "disabled" : ""}
+            >Actions ▼</button>
+            <div class="dropdown-menu" data-actions-menu="${dataset.id}">
+              <button
+                class="dropdown-item"
+                type="button"
+                data-dataset-download="${dataset.id}"
+                ${isDownloading ? "disabled" : ""}
+              >${isDownloading ? "Downloading…" : "Download"}</button>
+              <button
+                class="dropdown-item dropdown-item--danger"
+                type="button"
+                data-dataset-delete="${dataset.id}"
+                ${isDeleting ? "disabled" : ""}
+              >${isDeleting ? "Deleting…" : "Delete"}</button>
+            </div>
           </div>
         </td>
       </tr>
@@ -278,6 +286,35 @@ class PageDatasets extends HTMLElement {
           return;
         }
         void this.handleDelete(id);
+      });
+    });
+
+    // Actions dropdown toggle
+    this.root.querySelectorAll<HTMLButtonElement>("[data-toggle-actions]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const value = btn.dataset.toggleActions;
+        if (!value) return;
+
+        const dropdown = this.root.querySelector<HTMLElement>(`[data-actions-menu="${value}"]`);
+        if (!dropdown) return;
+
+        // Close all other dropdowns
+        this.root.querySelectorAll<HTMLElement>(".dropdown-menu").forEach((menu) => {
+          if (menu !== dropdown) {
+            menu.classList.remove("show");
+          }
+        });
+
+        // Toggle current dropdown
+        dropdown.classList.toggle("show");
+      });
+    });
+
+    // Close dropdowns when clicking outside
+    document.addEventListener("click", () => {
+      this.root.querySelectorAll<HTMLElement>(".dropdown-menu.show").forEach((menu) => {
+        menu.classList.remove("show");
       });
     });
   }

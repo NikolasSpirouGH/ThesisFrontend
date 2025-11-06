@@ -367,19 +367,24 @@ export class PageUsers extends HTMLElement {
       return;
     }
 
-    this.busy.set(this.deleteConfirmUser.username, "delete");
+    // Save username before clearing deleteConfirmUser
+    const username = this.deleteConfirmUser.username;
+
+    this.busy.set(username, "delete");
     this.render();
 
     try {
       const token = getToken() ?? undefined;
-      await deleteUserByAdmin(this.deleteConfirmUser.username, reason, token);
-      this.busy.delete(this.deleteConfirmUser.username);
+      await deleteUserByAdmin(username, reason, token);
+      window.alert("User deleted successfully!");
       this.deleteConfirmUser = null;
       await this.loadUsers();
     } catch (err: any) {
       console.error("Failed to delete user:", err);
       this.error = err?.message ?? "Failed to delete user";
-      this.busy.delete(this.deleteConfirmUser?.username || "");
+      this.render();
+    } finally {
+      this.busy.delete(username);
       this.render();
     }
   }

@@ -1,4 +1,4 @@
-import styles from './styles/admin-categories.css?raw';
+  import styles from './styles/admin-categories.css?raw';
 import { getToken, getUser } from '../../core/auth.store';
 import { handleNetworkError } from '../../core/http';
 

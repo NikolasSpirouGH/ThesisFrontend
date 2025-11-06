@@ -149,6 +149,9 @@ export async function deleteCategory(categoryId: number, token?: string): Promis
       const message = await normaliseError(res, "Failed to delete category");
       throw new Error(`${res.status}: ${message}`);
     }
+
+    // Consume the response body to prevent hanging
+    await res.json();
   } catch (error) {
     handleNetworkError(error);
     throw error;

@@ -223,27 +223,34 @@ class PageTrainings extends HTMLElement {
         <td>${this.formatDate(training.startedDate)}</td>
         <td>${this.formatDate(training.finishedDate)}</td>
         <td>
-          <div class="row-actions">
-            ${canViewResults ? `
-              <button
-                class="btn small primary"
-                type="button"
-                data-view-results="${training.modelId}"
-                ${this.loading ? "disabled" : ""}
-              >View Results</button>
-            ` : ''}
+          <div class="actions-dropdown">
             <button
               class="btn small ghost"
               type="button"
-              data-training-download="${training.trainingId}"
-              ${isDownloading || !canDownload || this.loading ? "disabled" : ""}
-            >${isDownloading ? "Downloading…" : "Download"}</button>
-            <button
-              class="btn small danger"
-              type="button"
-              data-training-delete="${training.trainingId}"
-              ${isDeleting || cannotDelete || this.loading ? "disabled" : ""}
-            >${isDeleting ? "Deleting…" : "Delete"}</button>
+              data-toggle-actions="${training.trainingId}"
+              ${this.loading ? "disabled" : ""}
+            >Actions ▼</button>
+            <div class="dropdown-menu" data-actions-menu="${training.trainingId}">
+              ${canViewResults ? `
+                <button
+                  class="dropdown-item"
+                  type="button"
+                  data-view-results="${training.modelId}"
+                >View Results</button>
+              ` : ''}
+              <button
+                class="dropdown-item"
+                type="button"
+                data-training-download="${training.trainingId}"
+                ${isDownloading || !canDownload ? "disabled" : ""}
+              >${isDownloading ? "Downloading…" : "Download"}</button>
+              <button
+                class="dropdown-item dropdown-item--danger"
+                type="button"
+                data-training-delete="${training.trainingId}"
+                ${isDeleting || cannotDelete ? "disabled" : ""}
+              >${isDeleting ? "Deleting…" : "Delete"}</button>
+            </div>
           </div>
         </td>
       </tr>
@@ -288,6 +295,35 @@ class PageTrainings extends HTMLElement {
           return;
         }
         void this.handleDelete(id);
+      });
+    });
+
+    // Actions dropdown toggle
+    this.root.querySelectorAll<HTMLButtonElement>("[data-toggle-actions]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const value = btn.dataset.toggleActions;
+        if (!value) return;
+
+        const dropdown = this.root.querySelector<HTMLElement>(`[data-actions-menu="${value}"]`);
+        if (!dropdown) return;
+
+        // Close all other dropdowns
+        this.root.querySelectorAll<HTMLElement>(".dropdown-menu").forEach((menu) => {
+          if (menu !== dropdown) {
+            menu.classList.remove("show");
+          }
+        });
+
+        // Toggle current dropdown
+        dropdown.classList.toggle("show");
+      });
+    });
+
+    // Close dropdowns when clicking outside
+    document.addEventListener("click", () => {
+      this.root.querySelectorAll<HTMLElement>(".dropdown-menu.show").forEach((menu) => {
+        menu.classList.remove("show");
       });
     });
 

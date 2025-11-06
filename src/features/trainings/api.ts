@@ -181,6 +181,9 @@ export async function deleteTraining(trainingId: number, token?: string): Promis
       const message = await normaliseError(res, "Failed to delete training");
       throw new Error(`${res.status}: ${message}`);
     }
+
+    // Consume the response body to prevent hanging
+    await res.json();
   } catch (error) {
     handleNetworkError(error);
     throw error;

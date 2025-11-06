@@ -121,12 +121,14 @@ class PageModels extends HTMLElement {
             <thead>
               <tr>
                 <th>Model Name</th>
+                <th>Description</th>
                 <th>Algorithm</th>
                 <th>Dataset</th>
                 <th>Type</th>
                 <th>Category</th>
                 <th>Status</th>
                 <th>Access</th>
+                <th>Created Date</th>
                 <th>Owner</th>
                 <th>Actions</th>
               </tr>
@@ -172,6 +174,7 @@ class PageModels extends HTMLElement {
             ${model.finalized ? '<span>Finalized</span>' : '<span>Not finalized</span>'}
           </div>
         </td>
+        <td class="description">${this.truncateText(model.description || "—", 50)}</td>
         <td>${model.algorithmName ?? "—"}</td>
         <td class="dataset">${model.datasetName ?? "—"}</td>
         <td>
@@ -184,41 +187,49 @@ class PageModels extends HTMLElement {
         <td>
           <span class="badge badge--${model.accessibility?.toLowerCase()}">${this.prettyStatus(model.accessibility)}</span>
         </td>
+        <td class="date">${this.formatDate(model.createdAt || model.finalizationDate)}</td>
         <td>${model.ownerUsername ?? "—"}</td>
         <td>
-          <div class="row-actions">
-            ${canView ? `
-              <button
-                class="btn small ghost"
-                type="button"
-                data-model-view="${model.id}"
-                ${this.loading ? "disabled" : ""}
-              >View</button>
-            ` : ''}
-            ${isOwner && model.finalized ? `
-              <button
-                class="btn small ghost"
-                type="button"
-                data-model-edit="${model.id}"
-                ${isUpdating || this.loading ? "disabled" : ""}
-              >${isUpdating ? "Updating…" : "Edit"}</button>
-            ` : ''}
-            ${isOwner && canFinalize ? `
-              <button
-                class="btn small primary"
-                type="button"
-                data-model-finalize="${model.id}"
-                ${isFinalizing || this.loading ? "disabled" : ""}
-              >${isFinalizing ? "Processing…" : "Finalize"}</button>
-            ` : ''}
-            ${isOwner ? `
-              <button
-                class="btn small ghost"
-                type="button"
-                data-model-delete="${model.id}"
-                ${isDeleting || this.loading ? "disabled" : ""}
-              >${isDeleting ? "Deleting…" : "Delete"}</button>
-            ` : ''}
+          <div class="actions-dropdown">
+            <button
+              class="btn small ghost"
+              type="button"
+              data-toggle-actions="${model.id}"
+              ${this.loading ? "disabled" : ""}
+            >Actions ▼</button>
+            <div class="dropdown-menu" data-actions-menu="${model.id}">
+              ${canView ? `
+                <button
+                  class="dropdown-item"
+                  type="button"
+                  data-model-view="${model.id}"
+                >View</button>
+              ` : ''}
+              ${isOwner && model.finalized ? `
+                <button
+                  class="dropdown-item"
+                  type="button"
+                  data-model-edit="${model.id}"
+                  ${isUpdating ? "disabled" : ""}
+                >${isUpdating ? "Updating…" : "Edit"}</button>
+              ` : ''}
+              ${isOwner && canFinalize ? `
+                <button
+                  class="dropdown-item"
+                  type="button"
+                  data-model-finalize="${model.id}"
+                  ${isFinalizing ? "disabled" : ""}
+                >${isFinalizing ? "Processing…" : "Finalize"}</button>
+              ` : ''}
+              ${isOwner ? `
+                <button
+                  class="dropdown-item dropdown-item--danger"
+                  type="button"
+                  data-model-delete="${model.id}"
+                  ${isDeleting ? "disabled" : ""}
+                >${isDeleting ? "Deleting…" : "Delete"}</button>
+              ` : ''}
+            </div>
           </div>
         </td>
       </tr>
@@ -693,6 +704,35 @@ class PageModels extends HTMLElement {
       });
     });
 
+    // Actions dropdown toggle
+    this.root.querySelectorAll<HTMLButtonElement>("[data-toggle-actions]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const value = btn.dataset.toggleActions;
+        if (!value) return;
+
+        const dropdown = this.root.querySelector<HTMLElement>(`[data-actions-menu="${value}"]`);
+        if (!dropdown) return;
+
+        // Close all other dropdowns
+        this.root.querySelectorAll<HTMLElement>(".dropdown-menu").forEach((menu) => {
+          if (menu !== dropdown) {
+            menu.classList.remove("show");
+          }
+        });
+
+        // Toggle current dropdown
+        dropdown.classList.toggle("show");
+      });
+    });
+
+    // Close dropdowns when clicking outside
+    document.addEventListener("click", () => {
+      this.root.querySelectorAll<HTMLElement>(".dropdown-menu.show").forEach((menu) => {
+        menu.classList.remove("show");
+      });
+    });
+
     // View modal close
     this.root.querySelectorAll<HTMLElement>("[data-action='close-view-modal']").forEach((el) => {
       el.addEventListener("click", () => {
@@ -915,13 +955,16 @@ class PageModels extends HTMLElement {
       return;
     }
 
+    // Save modelId before it gets cleared by closeEditModal
+    const modelId = this.selectedModelId;
+
     const form = this.root.querySelector<HTMLFormElement>("#editForm");
     if (!form || !form.checkValidity()) {
       form?.reportValidity();
       return;
     }
 
-    this.busy.set(this.selectedModelId, "update");
+    this.busy.set(modelId, "update");
     this.render();
 
     try {
@@ -941,7 +984,7 @@ class PageModels extends HTMLElement {
         isPublic: this.formData.isPublic
       };
 
-      await updateModel(this.selectedModelId, request, token);
+      await updateModel(modelId, request, token);
 
       window.alert("Model updated successfully!");
       this.closeEditModal();
@@ -953,7 +996,7 @@ class PageModels extends HTMLElement {
       const message = err instanceof Error ? err.message : "Failed to update model";
       window.alert(message);
     } finally {
-      this.busy.delete(this.selectedModelId);
+      this.busy.delete(modelId);
       this.render();
     }
   }
@@ -982,12 +1025,15 @@ class PageModels extends HTMLElement {
       return;
     }
 
-    this.busy.set(this.selectedModelId, "delete");
+    // Save modelId before it gets cleared by closeDeleteModal
+    const modelId = this.selectedModelId;
+
+    this.busy.set(modelId, "delete");
     this.render();
 
     try {
       const token = getToken() ?? undefined;
-      await deleteModel(this.selectedModelId, token);
+      await deleteModel(modelId, token);
 
       window.alert("Model deleted successfully!");
       this.closeDeleteModal();
@@ -999,7 +1045,7 @@ class PageModels extends HTMLElement {
       const message = err instanceof Error ? err.message : "Failed to delete model";
       window.alert(message);
     } finally {
-      this.busy.delete(this.selectedModelId);
+      this.busy.delete(modelId);
       this.render();
     }
   }
@@ -1054,6 +1100,26 @@ class PageModels extends HTMLElement {
       .split(/[_\s]+/)
       .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
       .join(" ");
+  }
+
+  private formatDate(dateString: string | null): string {
+    if (!dateString) return "—";
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    } catch {
+      return "—";
+    }
+  }
+
+  private truncateText(text: string, maxLength: number): string {
+    if (text === "—" || !text) return text;
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + "...";
   }
 }
 

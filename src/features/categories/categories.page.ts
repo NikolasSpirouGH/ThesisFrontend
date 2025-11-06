@@ -160,19 +160,26 @@ class PageCategories extends HTMLElement {
           ${parentCategories.length > 0 ? parentCategories.join(", ") : "—"}
         </td>
         <td>
-          <div class="row-actions">
+          <div class="actions-dropdown">
             <button
               class="btn small ghost"
               type="button"
-              data-category-edit="${category.id}"
+              data-toggle-actions="${category.id}"
               ${this.loading ? "disabled" : ""}
-            >Edit</button>
-            <button
-              class="btn small danger"
-              type="button"
-              data-category-delete="${category.id}"
-              ${isDeleting || this.loading ? "disabled" : ""}
-            >${isDeleting ? "Deleting…" : "Delete"}</button>
+            >Actions ▼</button>
+            <div class="dropdown-menu" data-actions-menu="${category.id}">
+              <button
+                class="dropdown-item"
+                type="button"
+                data-category-edit="${category.id}"
+              >Edit</button>
+              <button
+                class="dropdown-item dropdown-item--danger"
+                type="button"
+                data-category-delete="${category.id}"
+                ${isDeleting ? "disabled" : ""}
+              >${isDeleting ? "Deleting…" : "Delete"}</button>
+            </div>
           </div>
         </td>
       </tr>
@@ -239,6 +246,35 @@ class PageCategories extends HTMLElement {
           return;
         }
         void this.handleDelete(id);
+      });
+    });
+
+    // Actions dropdown toggle
+    this.root.querySelectorAll<HTMLButtonElement>("[data-toggle-actions]").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const value = btn.dataset.toggleActions;
+        if (!value) return;
+
+        const dropdown = this.root.querySelector<HTMLElement>(`[data-actions-menu="${value}"]`);
+        if (!dropdown) return;
+
+        // Close all other dropdowns
+        this.root.querySelectorAll<HTMLElement>(".dropdown-menu").forEach((menu) => {
+          if (menu !== dropdown) {
+            menu.classList.remove("show");
+          }
+        });
+
+        // Toggle current dropdown
+        dropdown.classList.toggle("show");
+      });
+    });
+
+    // Close dropdowns when clicking outside
+    document.addEventListener("click", () => {
+      this.root.querySelectorAll<HTMLElement>(".dropdown-menu.show").forEach((menu) => {
+        menu.classList.remove("show");
       });
     });
   }

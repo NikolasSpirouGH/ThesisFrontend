@@ -75,20 +75,43 @@ table {
   width: 100%;
   border-collapse: collapse;
   color: inherit;
+  table-layout: fixed;
 }
 
 th,
 td {
-  padding: 0.85rem 1rem;
+  padding: 0.7rem 0.6rem;
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
   text-align: left;
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+/* Allow Actions column to wrap */
+td:nth-child(11) {
+  overflow: visible;
+  white-space: normal;
+}
+
+/* Column width distribution */
+th:nth-child(1), td:nth-child(1) { width: 11%; } /* Model Name */
+th:nth-child(2), td:nth-child(2) { width: 13%; } /* Description */
+th:nth-child(3), td:nth-child(3) { width: 10%; }  /* Algorithm */
+th:nth-child(4), td:nth-child(4) { width: 10%; }  /* Dataset */
+th:nth-child(5), td:nth-child(5) { width: 7%; }  /* Type */
+th:nth-child(6), td:nth-child(6) { width: 9%; }  /* Category */
+th:nth-child(7), td:nth-child(7) { width: 8%; }  /* Status */
+th:nth-child(8), td:nth-child(8) { width: 7%; }  /* Access */
+th:nth-child(9), td:nth-child(9) { width: 10%; }  /* Created Date */
+th:nth-child(10), td:nth-child(10) { width: 8%; } /* Owner */
+th:nth-child(11), td:nth-child(11) { width: 7%; } /* Actions */
+
 th {
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   color: rgba(191, 219, 254, 0.72);
 }
 
@@ -100,14 +123,33 @@ tbody tr:hover {
   color: rgba(226, 232, 240, 0.78);
 }
 
+.description {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.date {
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
 .meta {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  overflow: hidden;
+}
+
+.meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .meta span:last-child {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: rgba(148, 163, 184, 0.78);
 }
 
@@ -158,10 +200,63 @@ tbody tr:hover {
   color: rgba(226, 232, 240, 0.92);
 }
 
-.row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+/* Actions Dropdown */
+.actions-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown-menu {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 0.25rem;
+  background: rgba(15, 23, 42, 0.98);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  min-width: 140px;
+  z-index: 1000;
+  padding: 0.35rem;
+}
+
+.dropdown-menu.show {
+  display: block;
+}
+
+.dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 0.6rem 0.9rem;
+  border: none;
+  background: transparent;
+  color: #f8fafc;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: background 0.15s ease;
+}
+
+.dropdown-item:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.15);
+  color: #bfdbfe;
+}
+
+.dropdown-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dropdown-item--danger {
+  color: #fca5a5;
+}
+
+.dropdown-item--danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
 }
 
 .btn {
@@ -193,8 +288,9 @@ tbody tr:hover {
 }
 
 .btn.small {
-  padding: 0.45rem 1.1rem;
-  font-size: 0.82rem;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
 }
 
 .btn:hover:not(:disabled) {
