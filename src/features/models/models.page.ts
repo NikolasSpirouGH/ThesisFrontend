@@ -40,6 +40,8 @@ class PageModels extends HTMLElement {
     simpleSearchInput: "",
     searchMode: "OR"
   };
+  private currentPage = 1;
+  private itemsPerPage = 10;
 
   connectedCallback() {
     this.root = this.shadowRoot ?? this.attachShadow({ mode: "open" });
@@ -71,6 +73,20 @@ class PageModels extends HTMLElement {
     `;
 
     this.bindEvents();
+  }
+
+  private get paginatedModels(): ModelItem[] {
+    const isSearchActive = this.filteredModels.length > 0 || this.hasSearchCriteria();
+    const displayModels = isSearchActive ? this.filteredModels : this.models;
+    const start = (this.currentPage - 1) * this.itemsPerPage;
+    const end = start + this.itemsPerPage;
+    return displayModels.slice(start, end);
+  }
+
+  private get totalPages(): number {
+    const isSearchActive = this.filteredModels.length > 0 || this.hasSearchCriteria();
+    const displayModels = isSearchActive ? this.filteredModels : this.models;
+    return Math.ceil(displayModels.length / this.itemsPerPage);
   }
 
   private renderBody(): string {
@@ -134,11 +150,50 @@ class PageModels extends HTMLElement {
               </tr>
             </thead>
             <tbody>
-              ${displayModels.map((item) => this.renderRow(item)).join("")}
+              ${this.paginatedModels.map((item) => this.renderRow(item)).join("")}
             </tbody>
           </table>
         </div>
+        ${this.renderPagination()}
       </section>
+    `;
+  }
+
+  private renderPagination(): string {
+    if (this.totalPages <= 1) {
+      return "";
+    }
+
+    const pages = [];
+    for (let i = 1; i <= this.totalPages; i++) {
+      pages.push(i);
+    }
+
+    return `
+      <div class="pagination">
+        <button
+          class="btn small ghost"
+          type="button"
+          data-page="prev"
+          ${this.currentPage === 1 ? "disabled" : ""}
+        >← Previous</button>
+        <div class="pagination-pages">
+          ${pages.map(page => `
+            <button
+              class="btn small ${page === this.currentPage ? "primary" : "ghost"}"
+              type="button"
+              data-page="${page}"
+              ${page === this.currentPage ? "disabled" : ""}
+            >${page}</button>
+          `).join("")}
+        </div>
+        <button
+          class="btn small ghost"
+          type="button"
+          data-page="next"
+          ${this.currentPage === this.totalPages ? "disabled" : ""}
+        >Next →</button>
+      </div>
     `;
   }
 
@@ -733,6 +788,22 @@ class PageModels extends HTMLElement {
       });
     });
 
+    // Pagination
+    this.root.querySelectorAll<HTMLButtonElement>("[data-page]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const page = btn.dataset.page;
+        if (page === "prev" && this.currentPage > 1) {
+          this.currentPage--;
+        } else if (page === "next" && this.currentPage < this.totalPages) {
+          this.currentPage++;
+        } else if (page && page !== "prev" && page !== "next") {
+          this.currentPage = Number.parseInt(page, 10);
+        }
+        this.render();
+        this.root.querySelector(".panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+
     // View modal close
     this.root.querySelectorAll<HTMLElement>("[data-action='close-view-modal']").forEach((el) => {
       el.addEventListener("click", () => {
@@ -800,6 +871,7 @@ class PageModels extends HTMLElement {
         this.dateValue(b.createdAt) - this.dateValue(a.createdAt)
       );
       this.categories = categories;
+      this.currentPage = 1; // Reset to first page on new data
     } catch (err) {
       if (err instanceof UnauthorizedError) {
         return;
@@ -1054,6 +1126,7 @@ class PageModels extends HTMLElement {
     try {
       const token = getToken() ?? undefined;
       this.filteredModels = await searchModels(this.searchData, token);
+      this.currentPage = 1; // Reset to first page on search
       this.render();
     } catch (err) {
       if (err instanceof UnauthorizedError) {

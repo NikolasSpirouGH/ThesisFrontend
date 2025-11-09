@@ -83,6 +83,7 @@ class PageExecutions extends HTMLElement {
                 <th>Algorithm</th>
                 <th>Dataset</th>
                 <th>Type</th>
+                <th>Owner</th>
                 <th>Status</th>
                 <th>Executed</th>
                 <th>Actions</th>
@@ -117,6 +118,7 @@ class PageExecutions extends HTMLElement {
         <td>
           <span class="model-type">${execution.modelType ?? "—"}</span>
         </td>
+        <td>${execution.ownerUsername ?? "—"}</td>
         <td>
           <span class="status status--${this.statusModifier(status)}">${this.prettyStatus(execution.status)}</span>
         </td>

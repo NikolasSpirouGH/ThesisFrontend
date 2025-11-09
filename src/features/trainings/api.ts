@@ -9,6 +9,7 @@ export type TrainingItem = {
   finishedDate: string | null;
   datasetName: string | null;
   modelId: number | null;
+  ownerUsername: string | null;
 };
 
 export type TrainingSearchParams = {

@@ -90,19 +90,20 @@ td {
 }
 
 /* Allow Actions column to show dropdown */
-td:nth-child(7) {
+td:nth-child(8) {
   overflow: visible;
   white-space: normal;
 }
 
-/* Column width distribution - 7 columns */
-th:nth-child(1), td:nth-child(1) { width: 18%; } /* Model */
-th:nth-child(2), td:nth-child(2) { width: 15%; } /* Algorithm */
-th:nth-child(3), td:nth-child(3) { width: 15%; } /* Dataset */
+/* Column width distribution - 8 columns */
+th:nth-child(1), td:nth-child(1) { width: 16%; } /* Model */
+th:nth-child(2), td:nth-child(2) { width: 14%; } /* Algorithm */
+th:nth-child(3), td:nth-child(3) { width: 14%; } /* Dataset */
 th:nth-child(4), td:nth-child(4) { width: 10%; } /* Type */
-th:nth-child(5), td:nth-child(5) { width: 12%; } /* Status */
-th:nth-child(6), td:nth-child(6) { width: 14%; } /* Executed */
-th:nth-child(7), td:nth-child(7) { width: 16%; } /* Actions */
+th:nth-child(5), td:nth-child(5) { width: 12%; } /* Owner */
+th:nth-child(6), td:nth-child(6) { width: 12%; } /* Status */
+th:nth-child(7), td:nth-child(7) { width: 12%; } /* Executed */
+th:nth-child(8), td:nth-child(8) { width: 10%; } /* Actions */
 
 th {
   font-size: 0.75rem;

@@ -12,6 +12,7 @@ export type ModelExecutionDTO = {
   modelId: number;
   datasetId: number | null;
   hasResultFile: boolean;
+  ownerUsername: string | null;
 };
 
 export type ExecutionsResponse = {

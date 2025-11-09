@@ -28,6 +28,8 @@ class PageTrainings extends HTMLElement {
   private showLauncher = false;
   private showSearchPanel = false;
   private searchParams: TrainingSearchParams = {};
+  private currentPage = 1;
+  private itemsPerPage = 10;
 
   connectedCallback() {
     this.root = this.shadowRoot ?? this.attachShadow({ mode: "open" });
@@ -149,6 +151,16 @@ class PageTrainings extends HTMLElement {
     `;
   }
 
+  private get paginatedTrainings(): TrainingItem[] {
+    const start = (this.currentPage - 1) * this.itemsPerPage;
+    const end = start + this.itemsPerPage;
+    return this.trainings.slice(start, end);
+  }
+
+  private get totalPages(): number {
+    return Math.ceil(this.trainings.length / this.itemsPerPage);
+  }
+
   private renderBody(): string {
     if (this.loading && this.trainings.length === 0 && !this.error) {
       return `
@@ -184,6 +196,7 @@ class PageTrainings extends HTMLElement {
               <tr>
                 <th>Algorithm</th>
                 <th>Dataset</th>
+                <th>Owner</th>
                 <th>Status</th>
                 <th>Started</th>
                 <th>Finished</th>
@@ -191,11 +204,50 @@ class PageTrainings extends HTMLElement {
               </tr>
             </thead>
             <tbody>
-              ${this.trainings.map((item) => this.renderRow(item)).join("")}
+              ${this.paginatedTrainings.map((item) => this.renderRow(item)).join("")}
             </tbody>
           </table>
         </div>
+        ${this.renderPagination()}
       </section>
+    `;
+  }
+
+  private renderPagination(): string {
+    if (this.totalPages <= 1) {
+      return "";
+    }
+
+    const pages = [];
+    for (let i = 1; i <= this.totalPages; i++) {
+      pages.push(i);
+    }
+
+    return `
+      <div class="pagination">
+        <button
+          class="btn small ghost"
+          type="button"
+          data-page="prev"
+          ${this.currentPage === 1 ? "disabled" : ""}
+        >← Previous</button>
+        <div class="pagination-pages">
+          ${pages.map(page => `
+            <button
+              class="btn small ${page === this.currentPage ? "primary" : "ghost"}"
+              type="button"
+              data-page="${page}"
+              ${page === this.currentPage ? "disabled" : ""}
+            >${page}</button>
+          `).join("")}
+        </div>
+        <button
+          class="btn small ghost"
+          type="button"
+          data-page="next"
+          ${this.currentPage === this.totalPages ? "disabled" : ""}
+        >Next →</button>
+      </div>
     `;
   }
 
@@ -217,6 +269,7 @@ class PageTrainings extends HTMLElement {
           </div>
         </td>
         <td class="dataset">${training.datasetName ?? "—"}</td>
+        <td>${training.ownerUsername ?? "—"}</td>
         <td>
           <span class="status status--${this.statusModifier(status)}">${this.prettyStatus(training.status)}</span>
         </td>
@@ -384,6 +437,23 @@ class PageTrainings extends HTMLElement {
       void this.loadTrainings(true);
       this.render();
     });
+
+    // Pagination
+    this.root.querySelectorAll<HTMLButtonElement>("[data-page]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const page = btn.dataset.page;
+        if (page === "prev" && this.currentPage > 1) {
+          this.currentPage--;
+        } else if (page === "next" && this.currentPage < this.totalPages) {
+          this.currentPage++;
+        } else if (page && page !== "prev" && page !== "next") {
+          this.currentPage = Number.parseInt(page, 10);
+        }
+        this.render();
+        // Scroll to top of table
+        this.root.querySelector(".panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
   }
 
   private async loadAlgorithms() {
@@ -412,6 +482,7 @@ class PageTrainings extends HTMLElement {
       const token = getToken() ?? undefined;
       const items = await fetchTrainings(token, this.searchParams);
       this.trainings = [...items].sort((a, b) => this.dateValue(b.startedDate) - this.dateValue(a.startedDate));
+      this.currentPage = 1; // Reset to first page on new data
     } catch (err) {
       if (err instanceof UnauthorizedError) {
         return;

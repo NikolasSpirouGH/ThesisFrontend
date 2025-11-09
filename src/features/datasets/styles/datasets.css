@@ -429,6 +429,22 @@ tbody tr:hover {
   margin-top: 0.5rem;
 }
 
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.pagination-pages {
+  display: flex;
+  gap: 0.25rem;
+}
+
 @media (max-width: 720px) {
   .hero {
     flex-direction: column;

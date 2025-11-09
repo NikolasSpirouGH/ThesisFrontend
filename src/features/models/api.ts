@@ -127,7 +127,7 @@ export async function finalizeModel(
       ...authHeader(token)
     };
 
-    const res = await fetch(`/api/models/${modelId}/model`, {
+    const res = await fetch(`/api/models/finalize/${modelId}`, {
       method: "POST",
       headers,
       body: JSON.stringify(request)
@@ -182,7 +182,7 @@ export async function updateModel(
       ...authHeader(token)
     };
 
-    const res = await fetch(`/api/models/${modelId}`, {
+    const res = await fetch(`/api/models/update/${modelId}`, {
       method: "PUT",
       headers,
       body: JSON.stringify(request)
