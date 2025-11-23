@@ -7,12 +7,13 @@ export type ModelExecutionDTO = {
   algorithmName: string;
   datasetName: string;
   executedAt: string;
-  status: "IN_PROGRESS" | "FINISHED" | "FAILED";
+  status: "IN_PROGRESS" | "FINISHED" | "FAILED" | "COMPLETED" | "PENDING" | "RUNNING";
   predictionResult: string | null;
   modelId: number;
   datasetId: number | null;
   hasResultFile: boolean;
   ownerUsername: string | null;
+  accessibility?: "PUBLIC" | "PRIVATE" | "RESTRICTED";
 };
 
 export type ExecutionsResponse = {
@@ -20,9 +21,40 @@ export type ExecutionsResponse = {
   message: string;
 };
 
-export async function getExecutions(token?: string): Promise<ExecutionsResponse> {
+export type ExecutionSearchParams = {
+  executedAtFrom?: string;
+  executedAtTo?: string;
+};
+
+export async function getExecutions(token?: string, params?: ExecutionSearchParams): Promise<ModelExecutionDTO[]> {
   try {
-    const res = await fetch('/api/model-exec/list', {
+    const res = await fetch('/api/model-exec/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify(params || {})
+    });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Status ${res.status}: ${text || res.statusText}`);
+    }
+
+    return res.json();
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
+  }
+}
+
+export async function getExecutionDetails(executionId: number, token?: string): Promise<ModelExecutionDTO> {
+  try {
+    const res = await fetch(`/api/model-exec/${executionId}`, {
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       }
@@ -35,7 +67,8 @@ export async function getExecutions(token?: string): Promise<ExecutionsResponse>
       throw new Error(`Status ${res.status}: ${text || res.statusText}`);
     }
 
-    return res.json();
+    const response = await res.json();
+    return response.dataHeader || response.data;
   } catch (error) {
     handleNetworkError(error);
     throw error;
@@ -132,7 +165,7 @@ export async function startExecution(formData: FormData, token?: string): Promis
 
 export async function deleteExecution(executionId: number, token?: string): Promise<void> {
   try {
-    const res = await fetch(`/api/model-exec/${executionId}`, {
+    const res = await fetch(`/api/model-exec/delete/${executionId}`, {
       method: 'DELETE',
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {})

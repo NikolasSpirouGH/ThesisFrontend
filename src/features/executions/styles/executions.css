@@ -60,6 +60,55 @@
   padding: clamp(2rem, 3vw, 2.75rem);
 }
 
+.panel h2 {
+  margin: 0 0 1.5rem;
+  font-size: clamp(1.5rem, 2.5vw, 1.75rem);
+}
+
+/* Form Elements */
+.form-group {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(191, 219, 254, 0.92);
+}
+
+.form-group input[type="text"],
+.form-group input[type="date"],
+.form-group input[type="number"],
+.form-group select {
+  width: 100%;
+  padding: 0.65rem 0.9rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  color: #f8fafc;
+  font: inherit;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: rgba(96, 165, 250, 0.5);
+  background: rgba(30, 41, 59, 0.8);
+}
+
+.form-group small {
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.78);
+}
+
+.form-group input[type="radio"] {
+  margin-right: 0.35rem;
+  cursor: pointer;
+}
+
 .state {
   text-align: center;
   color: rgba(226, 232, 240, 0.82);
@@ -90,20 +139,21 @@ td {
 }
 
 /* Allow Actions column to show dropdown */
-td:nth-child(8) {
+td:nth-child(9) {
   overflow: visible;
   white-space: normal;
 }
 
-/* Column width distribution - 8 columns */
-th:nth-child(1), td:nth-child(1) { width: 16%; } /* Model */
-th:nth-child(2), td:nth-child(2) { width: 14%; } /* Algorithm */
-th:nth-child(3), td:nth-child(3) { width: 14%; } /* Dataset */
-th:nth-child(4), td:nth-child(4) { width: 10%; } /* Type */
-th:nth-child(5), td:nth-child(5) { width: 12%; } /* Owner */
-th:nth-child(6), td:nth-child(6) { width: 12%; } /* Status */
-th:nth-child(7), td:nth-child(7) { width: 12%; } /* Executed */
-th:nth-child(8), td:nth-child(8) { width: 10%; } /* Actions */
+/* Column width distribution - 9 columns */
+th:nth-child(1), td:nth-child(1) { width: 14%; } /* Model */
+th:nth-child(2), td:nth-child(2) { width: 12%; } /* Algorithm */
+th:nth-child(3), td:nth-child(3) { width: 12%; } /* Dataset */
+th:nth-child(4), td:nth-child(4) { width: 9%; }  /* Type */
+th:nth-child(5), td:nth-child(5) { width: 11%; } /* Owner */
+th:nth-child(6), td:nth-child(6) { width: 11%; } /* Status */
+th:nth-child(7), td:nth-child(7) { width: 11%; } /* Access */
+th:nth-child(8), td:nth-child(8) { width: 11%; } /* Executed */
+th:nth-child(9), td:nth-child(9) { width: 9%; }  /* Actions */
 
 th {
   font-size: 0.75rem;
@@ -179,6 +229,34 @@ tbody tr:hover {
 .status--default {
   background: rgba(148, 163, 184, 0.2);
   color: rgba(226, 232, 240, 0.92);
+}
+
+/* Badges for Access and Type */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.badge--public {
+  background: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+}
+
+.badge--private {
+  background: rgba(251, 191, 36, 0.22);
+  color: #facc15;
+}
+
+.badge--restricted {
+  background: rgba(248, 113, 113, 0.2);
+  color: #f87171;
 }
 
 /* Actions Dropdown */
@@ -296,6 +374,80 @@ tbody tr:hover {
   border: 1px dashed rgba(148, 163, 184, 0.4);
   border-radius: 18px;
   padding: 2.5rem 1.75rem;
+}
+
+/* View Modal */
+.modal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 50;
+}
+
+.modal__overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.78);
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+}
+
+.modal__panel {
+  position: relative;
+  width: min(600px, 92vw);
+  max-height: 85vh;
+  overflow-y: auto;
+  background: rgba(15, 23, 42, 0.92);
+  border-radius: 28px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  padding: clamp(2rem, 4vw, 2.5rem);
+  box-shadow: 0 32px 88px rgba(7, 11, 22, 0.6);
+  display: grid;
+  gap: 1.5rem;
+}
+
+.modal__header h2 {
+  margin: 0;
+  font-size: clamp(1.5rem, 3vw, 1.75rem);
+}
+
+.modal__body {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.modal__body p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.modal__body strong {
+  color: rgba(191, 219, 254, 0.92);
+}
+
+.modal__actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.pagination-pages {
+  display: flex;
+  gap: 0.25rem;
 }
 
 @media (max-width: 720px) {
