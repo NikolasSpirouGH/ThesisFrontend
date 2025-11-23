@@ -50,8 +50,25 @@ function authHeader(token?: string): Record<string, string> {
 
 async function normaliseError(res: Response, fallback: string): Promise<string> {
   handleUnauthorized(res);
-  const body = await res.text().catch(() => "");
-  return body || res.statusText || fallback;
+  try {
+    const json = await res.json();
+    // Try to extract message from GenericResponse structure
+    if (json && typeof json === 'object') {
+      // Check for message field (GenericResponse format)
+      if (json.message && typeof json.message === 'string') {
+        return json.message;
+      }
+      // Check for error field
+      if (json.error && typeof json.error === 'string') {
+        return json.error;
+      }
+    }
+    return res.statusText || fallback;
+  } catch {
+    // If JSON parsing fails, try to get text
+    const body = await res.text().catch(() => "");
+    return body || res.statusText || fallback;
+  }
 }
 
 export async function fetchDatasets(token?: string): Promise<DatasetDTO[]> {
@@ -218,8 +235,17 @@ export async function deleteDataset(datasetId: number, token?: string): Promise<
       throw new Error(`${res.status}: ${message}`);
     }
 
-    // Consume the response body to prevent hanging
-    await res.json();
+    // 204 No Content - no body to consume
+    if (res.status === 204) {
+      return;
+    }
+
+    // For other success statuses, try to consume the response body
+    try {
+      await res.json();
+    } catch {
+      // Ignore JSON parse errors on successful responses
+    }
   } catch (error) {
     handleNetworkError(error);
     throw error;

@@ -1,10 +1,11 @@
 import { getToken } from "../../core/auth.store";
 import { UnauthorizedError } from "../../core/http";
-import { fetchCategories, createCategory, deleteCategory } from "./api";
-import type { CategoryDTO, CategoryCreateRequest } from "./api";
+import { fetchCategories, createCategory, deleteCategory, updateCategory, fetchCategoryById } from "./api";
+import type { CategoryDTO, CategoryCreateRequest, CategoryUpdateRequest } from "./api";
 import styles from "./styles/categories.css?raw";
 
-type BusyAction = "delete" | "create";
+type BusyAction = "delete" | "create" | "update";
+type DialogMode = "create" | "edit" | "view" | null;
 
 declare global {
   interface HTMLElementTagNameMap {
@@ -18,8 +19,9 @@ class PageCategories extends HTMLElement {
   private loading = false;
   private error: string | null = null;
   private busy = new Map<number, BusyAction>();
-  private showCreateDialog = false;
-  private createFormData: Partial<CategoryCreateRequest> = {};
+  private dialogMode: DialogMode = null;
+  private dialogCategoryId: number | null = null;
+  private formData: Partial<CategoryDTO> = {};
   private currentPage = 1;
   private itemsPerPage = 10;
 
@@ -53,7 +55,7 @@ class PageCategories extends HTMLElement {
             <button class="btn ghost" type="button" data-action="refresh" ${this.loading ? "disabled" : ""}>${this.loading ? "Refreshing…" : "Refresh"}</button>
           </div>
         </header>
-        ${this.renderCreateDialog()}
+        ${this.renderDialog()}
         ${this.renderBody()}
       </div>
     `;
@@ -61,45 +63,99 @@ class PageCategories extends HTMLElement {
     this.bindEvents();
   }
 
-  private renderCreateDialog(): string {
-    if (!this.showCreateDialog) {
+  private renderDialog(): string {
+    if (!this.dialogMode) {
       return "";
     }
+
+    const isView = this.dialogMode === "view";
+    const isEdit = this.dialogMode === "edit";
+    const isCreate = this.dialogMode === "create";
+
+    const title = isView ? "View Category" : isEdit ? "Edit Category" : "Propose New Category";
+    const intro = isCreate
+      ? "Submit a category request for admin approval. Categories support hierarchical relationships with parent categories."
+      : isView
+      ? "Category details"
+      : "Update category information. Changes require admin approval.";
+
+    const parentCategoryNames = this.formData.parentCategoryIds
+      ? this.formData.parentCategoryIds.map(id => {
+          const parent = this.categories.find(c => c.id === id);
+          return parent?.name ?? `ID: ${id}`;
+        }).join(", ")
+      : "—";
 
     return `
       <div class="dialog" role="dialog" aria-modal="true">
         <div class="dialog__overlay" data-action="close-dialog"></div>
         <section class="dialog__panel">
           <header>
-            <h2>Propose New Category</h2>
-            <p class="intro">Submit a category request for admin approval. Categories support hierarchical relationships with parent categories.</p>
+            <h2>${title}</h2>
+            <p class="intro">${intro}</p>
           </header>
-          <form class="dialog__form" data-form="create-category">
-            <div class="form-group">
-              <label for="category-name">Name *</label>
-              <input
-                type="text"
-                id="category-name"
-                name="name"
-                required
-                placeholder="e.g., Computer Vision"
-                value="${this.createFormData.name ?? ""}"
-              />
+          ${isView ? `
+            <div class="view-content">
+              <div class="view-field">
+                <label>Name</label>
+                <p>${this.formData.name ?? "—"}</p>
+              </div>
+              <div class="view-field">
+                <label>Description</label>
+                <p>${this.formData.description ?? "—"}</p>
+              </div>
+              <div class="view-field">
+                <label>Created By</label>
+                <p>${this.formData.createdByUsername ?? "—"}</p>
+              </div>
+              <div class="view-field">
+                <label>Parent Categories</label>
+                <p>${parentCategoryNames}</p>
+              </div>
+              <div class="form-actions">
+                <button class="btn ghost" type="button" data-action="close-dialog">Close</button>
+              </div>
             </div>
-            <div class="form-group">
-              <label for="category-description">Description</label>
-              <textarea
-                id="category-description"
-                name="description"
-                rows="3"
-                placeholder="Brief description of this category..."
-              >${this.createFormData.description ?? ""}</textarea>
-            </div>
-            <div class="form-actions">
-              <button class="btn primary" type="submit">Submit Request</button>
-              <button class="btn ghost" type="button" data-action="close-dialog">Cancel</button>
-            </div>
-          </form>
+          ` : `
+            <form class="dialog__form" data-form="category-form">
+              <div class="form-group">
+                <label for="category-name">Name ${isCreate ? "*" : ""}</label>
+                <input
+                  type="text"
+                  id="category-name"
+                  name="name"
+                  ${isCreate ? "required" : ""}
+                  placeholder="e.g., Computer Vision"
+                  value="${this.formData.name ?? ""}"
+                  ${isView ? "disabled" : ""}
+                />
+              </div>
+              <div class="form-group">
+                <label for="category-description">Description</label>
+                <textarea
+                  id="category-description"
+                  name="description"
+                  rows="3"
+                  placeholder="Brief description of this category..."
+                  ${isView ? "disabled" : ""}
+                >${this.formData.description ?? ""}</textarea>
+              </div>
+              ${isView ? `
+                <div class="form-group">
+                  <label>Created By</label>
+                  <input type="text" value="${this.formData.createdByUsername ?? "—"}" disabled />
+                </div>
+                <div class="form-group">
+                  <label>Parent Categories</label>
+                  <input type="text" value="${parentCategoryNames}" disabled />
+                </div>
+              ` : ""}
+              <div class="form-actions">
+                <button class="btn primary" type="submit">${isCreate ? "Submit Request" : "Update"}</button>
+                <button class="btn ghost" type="button" data-action="close-dialog">Cancel</button>
+              </div>
+            </form>
+          `}
         </section>
       </div>
     `;
@@ -207,6 +263,11 @@ class PageCategories extends HTMLElement {
               <button
                 class="dropdown-item"
                 type="button"
+                data-category-view="${category.id}"
+              >View</button>
+              <button
+                class="dropdown-item"
+                type="button"
                 data-category-edit="${category.id}"
               >Edit</button>
               <button
@@ -233,8 +294,8 @@ class PageCategories extends HTMLElement {
 
   private bindEvents() {
     this.root.querySelector<HTMLButtonElement>("[data-action='create']")?.addEventListener("click", () => {
-      this.showCreateDialog = true;
-      this.createFormData = {};
+      this.dialogMode = "create";
+      this.formData = {};
       this.render();
     });
 
@@ -246,21 +307,35 @@ class PageCategories extends HTMLElement {
 
     this.root.querySelectorAll<HTMLElement>("[data-action='close-dialog']").forEach((el) => {
       el.addEventListener("click", () => {
-        this.showCreateDialog = false;
-        this.createFormData = {};
+        this.dialogMode = null;
+        this.dialogCategoryId = null;
+        this.formData = {};
         this.render();
       });
     });
 
-    this.root.querySelector<HTMLFormElement>("[data-form='create-category']")?.addEventListener("submit", (e) => {
+    this.root.querySelector<HTMLFormElement>("[data-form='category-form']")?.addEventListener("submit", (e) => {
       e.preventDefault();
       const formData = new FormData(e.target as HTMLFormElement);
       const name = formData.get("name") as string;
       const description = formData.get("description") as string;
 
-      if (name) {
+      if (this.dialogMode === "create" && name) {
         void this.handleCreate({ name, description: description || undefined });
+      } else if (this.dialogMode === "edit" && this.dialogCategoryId) {
+        void this.handleUpdate(this.dialogCategoryId, { name, description });
       }
+    });
+
+    this.root.querySelectorAll<HTMLButtonElement>("[data-category-view]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const value = btn.dataset.categoryView;
+        const id = value ? Number.parseInt(value, 10) : NaN;
+        if (!Number.isFinite(id)) {
+          return;
+        }
+        void this.handleView(id);
+      });
     });
 
     this.root.querySelectorAll<HTMLButtonElement>("[data-category-edit]").forEach((btn) => {
@@ -363,8 +438,8 @@ class PageCategories extends HTMLElement {
     try {
       const token = getToken() ?? undefined;
       await createCategory(request, token);
-      this.showCreateDialog = false;
-      this.createFormData = {};
+      this.dialogMode = null;
+      this.formData = {};
       window.alert("Category request submitted successfully. Awaiting admin approval.");
       void this.loadCategories(true);
     } catch (err) {
@@ -379,12 +454,74 @@ class PageCategories extends HTMLElement {
     }
   }
 
-  private async handleEdit(id: number) {
-    const category = this.categories.find(c => c.id === id);
-    if (!category) {
-      return;
+  private async handleView(id: number) {
+    this.loading = true;
+    this.render();
+
+    try {
+      const token = getToken() ?? undefined;
+      const category = await fetchCategoryById(id, token);
+      this.dialogMode = "view";
+      this.dialogCategoryId = id;
+      this.formData = category;
+      this.render();
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Failed to load category";
+      window.alert(message);
+    } finally {
+      this.loading = false;
+      this.render();
     }
-    window.alert(`Edit functionality for "${category.name}" will be implemented soon.`);
+  }
+
+  private async handleEdit(id: number) {
+    this.loading = true;
+    this.render();
+
+    try {
+      const token = getToken() ?? undefined;
+      const category = await fetchCategoryById(id, token);
+      this.dialogMode = "edit";
+      this.dialogCategoryId = id;
+      this.formData = category;
+      this.render();
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Failed to load category";
+      window.alert(message);
+    } finally {
+      this.loading = false;
+      this.render();
+    }
+  }
+
+  private async handleUpdate(id: number, request: CategoryUpdateRequest) {
+    this.busy.set(id, "update");
+    this.render();
+
+    try {
+      const token = getToken() ?? undefined;
+      await updateCategory(id, request, token);
+      this.dialogMode = null;
+      this.dialogCategoryId = null;
+      this.formData = {};
+      window.alert("Category updated successfully");
+      void this.loadCategories(true);
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        return;
+      }
+      const message = err instanceof Error ? err.message : "Failed to update category";
+      window.alert(message);
+    } finally {
+      this.busy.delete(id);
+      this.render();
+    }
   }
 
   private async handleDelete(id: number) {

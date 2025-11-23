@@ -42,8 +42,25 @@ function authHeader(token?: string): Record<string, string> {
 
 async function normaliseError(res: Response, fallback: string): Promise<string> {
   handleUnauthorized(res);
-  const body = await res.text().catch(() => "");
-  return body || res.statusText || fallback;
+  try {
+    const json = await res.json();
+    // Try to extract message from GenericResponse structure
+    if (json && typeof json === 'object') {
+      // Check for message field (GenericResponse format)
+      if (json.message && typeof json.message === 'string') {
+        return json.message;
+      }
+      // Check for error field
+      if (json.error && typeof json.error === 'string') {
+        return json.error;
+      }
+    }
+    return res.statusText || fallback;
+  } catch {
+    // If JSON parsing fails, try to get text
+    const body = await res.text().catch(() => "");
+    return body || res.statusText || fallback;
+  }
 }
 
 export async function fetchCategories(token?: string): Promise<CategoryDTO[]> {
@@ -59,6 +76,29 @@ export async function fetchCategories(token?: string): Promise<CategoryDTO[]> {
 
     if (!res.ok) {
       const message = await normaliseError(res, "Failed to load categories");
+      throw new Error(`${res.status}: ${message}`);
+    }
+
+    return res.json();
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
+  }
+}
+
+export async function fetchCategoryById(categoryId: number, token?: string): Promise<CategoryDTO> {
+  try {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      ...authHeader(token)
+    };
+
+    const res = await fetch(`/api/categories/${categoryId}`, { headers });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      const message = await normaliseError(res, "Failed to load category");
       throw new Error(`${res.status}: ${message}`);
     }
 
@@ -150,8 +190,17 @@ export async function deleteCategory(categoryId: number, token?: string): Promis
       throw new Error(`${res.status}: ${message}`);
     }
 
-    // Consume the response body to prevent hanging
-    await res.json();
+    // 204 No Content - no body to consume
+    if (res.status === 204) {
+      return;
+    }
+
+    // For other success statuses, try to consume the response body
+    try {
+      await res.json();
+    } catch {
+      // Ignore JSON parse errors on successful responses
+    }
   } catch (error) {
     handleNetworkError(error);
     throw error;
