@@ -1,8 +1,8 @@
 import { getToken } from "../../core/auth.store";
 import { UnauthorizedError } from "../../core/http";
-import { fetchAlgorithms } from "../algorithms/api";
+import { fetchAlgorithms, fetchAlgorithmWithOptions } from "../algorithms/api";
 import type { AlgorithmWeka } from "../algorithms/api";
-import { startTraining, fetchRetrainOptions, fetchRetrainTrainingDetails, fetchRetrainModelDetails } from "./api";
+import { startTraining, fetchRetrainOptions, fetchRetrainTrainingDetails, fetchRetrainModelDetails, parseDatasetColumns } from "./api";
 import type {
   RetrainModelOption,
   RetrainOptions,
@@ -11,6 +11,10 @@ import type {
 } from "./api";
 import { getTaskStatus, stopTask } from "../tasks/api";
 import styles from "./styles/training-retrain.css?raw";
+import "./components/algorithm-options-configurator";
+import type { AlgorithmOptionsConfigurator } from "./components/algorithm-options-configurator";
+import "./components/dataset-column-selector";
+import type { DatasetColumnSelector } from "./components/dataset-column-selector";
 
 type StatusTone = "info" | "success" | "error" | "warning";
 type SourceMode = "training" | "model";
@@ -29,17 +33,14 @@ type ComponentState = {
   details: RetrainTrainingDetails | null;
   detailsLoading: boolean;
   selectedAlgorithmId: string;
+  selectedAlgorithm: AlgorithmWeka | null;
   algorithmConfigurationId: string | null;
   datasetConfigurationId: string | null;
   datasetId: string | null;
   datasetName: string | null;
-  options: string;
-  basicColumns: string;
-  targetColumn: string;
+  algorithmOptionsLoading: boolean;
+  columnsLoading: boolean;
   initialAlgorithmId: string;
-  initialOptions: string;
-  initialBasicColumns: string;
-  initialTargetColumn: string;
   submitting: boolean;
   taskId: string | null;
   taskStatus: string | null;
@@ -62,9 +63,8 @@ type Refs = {
   fileName: HTMLElement;
   datasetCaption: HTMLElement;
   algorithmSelect: HTMLSelectElement;
-  optionsInput: HTMLInputElement;
-  basicColumnsInput: HTMLInputElement;
-  targetColumnInput: HTMLInputElement;
+  optionsConfigurator: AlgorithmOptionsConfigurator;
+  columnSelector: DatasetColumnSelector;
   submitButton: HTMLButtonElement;
   resetButton: HTMLButtonElement;
   stopButton: HTMLButtonElement;
@@ -94,17 +94,14 @@ export class PageTrainRetrain extends HTMLElement {
     details: null,
     detailsLoading: false,
     selectedAlgorithmId: "",
+    selectedAlgorithm: null,
     algorithmConfigurationId: null,
     datasetConfigurationId: null,
     datasetId: null,
     datasetName: null,
-    options: "",
-    basicColumns: "",
-    targetColumn: "",
+    algorithmOptionsLoading: false,
+    columnsLoading: false,
     initialAlgorithmId: "",
-    initialOptions: "",
-    initialBasicColumns: "",
-    initialTargetColumn: "",
     submitting: false,
     taskId: null,
     taskStatus: null,
@@ -197,25 +194,17 @@ export class PageTrainRetrain extends HTMLElement {
                   <option value="" disabled selected>Select a source first</option>
                 </select>
               </label>
-              <label class="field">
-                <span>Options (optional)</span>
-                <input type="text" id="options" placeholder="e.g. -C 0.5 -M 2" autocomplete="off" />
+              <div class="field">
+                <span>Algorithm Options</span>
+                <algorithm-options-configurator data-ref="optionsConfigurator"></algorithm-options-configurator>
                 <small>Defaults come from the selected training. Adjust to test a variant.</small>
-              </label>
+              </div>
             </fieldset>
 
             <fieldset class="group">
-              <legend>Dataset configuration (optional)</legend>
-              <label class="field">
-                <span>Attribute columns</span>
-                <input type="text" id="basicColumns" placeholder="e.g. 1,2,3" inputmode="numeric" autocomplete="off" />
-                <small>Comma-separated column numbers to include. Leave empty to reuse the original selection.</small>
-              </label>
-              <label class="field">
-                <span>Class column</span>
-                <input type="text" id="targetColumn" placeholder="e.g. 4" inputmode="numeric" autocomplete="off" />
-                <small>Column number representing the target class. Leave empty to reuse the original value.</small>
-              </label>
+              <legend>Dataset Column Selection</legend>
+              <dataset-column-selector data-ref="columnSelector"></dataset-column-selector>
+              <small>Column selection will be loaded from the dataset or reused from the selected training.</small>
             </fieldset>
 
             <div class="form__actions">
@@ -238,9 +227,8 @@ export class PageTrainRetrain extends HTMLElement {
     const fileName = this.root.querySelector<HTMLElement>("[data-file-name]");
     const datasetCaption = this.root.querySelector<HTMLElement>("[data-dataset-caption]");
     const algorithmSelect = this.root.querySelector<HTMLSelectElement>("#algorithm");
-    const optionsInput = this.root.querySelector<HTMLInputElement>("#options");
-    const basicColumnsInput = this.root.querySelector<HTMLInputElement>("#basicColumns");
-    const targetColumnInput = this.root.querySelector<HTMLInputElement>("#targetColumn");
+    const optionsConfigurator = this.root.querySelector<AlgorithmOptionsConfigurator>("[data-ref='optionsConfigurator']");
+    const columnSelector = this.root.querySelector<DatasetColumnSelector>("[data-ref='columnSelector']");
     const submitButton = this.root.querySelector<HTMLButtonElement>(".form__actions .btn.primary");
     const resetButton = this.root.querySelector<HTMLButtonElement>("[data-action='reset']");
     const stopButton = this.root.querySelector<HTMLButtonElement>("[data-action='stop']");
@@ -254,7 +242,7 @@ export class PageTrainRetrain extends HTMLElement {
 
     if (
       !form || !datasetInput || !dropzone || !chooseFileBtn || !clearFileBtn || !fileName || !datasetCaption ||
-      !algorithmSelect || !optionsInput || !basicColumnsInput || !targetColumnInput ||
+      !algorithmSelect || !optionsConfigurator || !columnSelector ||
       !submitButton || !resetButton || !stopButton || !statusBanner || !modeTrainingRadio || !modeModelRadio ||
       !trainingWrapper || !modelWrapper || !trainingSelect || !modelSelect
     ) {
@@ -270,9 +258,8 @@ export class PageTrainRetrain extends HTMLElement {
       fileName,
       datasetCaption,
       algorithmSelect,
-      optionsInput,
-      basicColumnsInput,
-      targetColumnInput,
+      optionsConfigurator,
+      columnSelector,
       submitButton,
       resetButton,
       stopButton,
@@ -306,18 +293,12 @@ export class PageTrainRetrain extends HTMLElement {
     this.refs.modelSelect.addEventListener("change", (event) => this.handleModelSelection(event));
 
     this.refs.algorithmSelect.addEventListener("change", (event) => {
-      this.state.selectedAlgorithmId = (event.target as HTMLSelectElement).value;
+      const value = (event.target as HTMLSelectElement).value;
+      this.state.selectedAlgorithmId = value;
       this.updateSubmitState();
-    });
-
-    this.refs.optionsInput.addEventListener("input", (event) => {
-      this.state.options = (event.target as HTMLInputElement).value;
-    });
-    this.refs.basicColumnsInput.addEventListener("input", (event) => {
-      this.state.basicColumns = (event.target as HTMLInputElement).value;
-    });
-    this.refs.targetColumnInput.addEventListener("input", (event) => {
-      this.state.targetColumn = (event.target as HTMLInputElement).value;
+      if (value && value !== this.state.initialAlgorithmId) {
+        void this.loadAlgorithmOptions(parseInt(value));
+      }
     });
 
     this.refs.resetButton.addEventListener("click", () => this.resetOverrides());
@@ -351,6 +332,54 @@ export class PageTrainRetrain extends HTMLElement {
       this.state.algorithmsLoading = false;
       this.renderAlgorithmOptions();
       this.updateSubmitState();
+    }
+  }
+
+  private async loadAlgorithmOptions(algorithmId: number) {
+    this.state.algorithmOptionsLoading = true;
+
+    try {
+      const algorithm = await fetchAlgorithmWithOptions(algorithmId);
+      this.state.selectedAlgorithm = algorithm;
+
+      if (algorithm.options && algorithm.options.length > 0) {
+        this.refs.optionsConfigurator.setOptions(algorithm.options);
+      } else {
+        this.refs.optionsConfigurator.setOptions([]);
+      }
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Failed to load algorithm options";
+      this.showStatus(message, "warning");
+      this.refs.optionsConfigurator.setOptions([]);
+    } finally {
+      this.state.algorithmOptionsLoading = false;
+    }
+  }
+
+  private async loadDatasetColumns(file: File) {
+    this.state.columnsLoading = true;
+
+    try {
+      const response = await parseDatasetColumns(file);
+
+      if (response.columns && response.columns.length > 0) {
+        this.refs.columnSelector.setColumns(response.columns);
+      } else {
+        this.refs.columnSelector.setColumns([]);
+        this.showStatus("No columns found in dataset", "warning");
+      }
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Failed to parse dataset columns";
+      this.showStatus(message, "warning");
+      this.refs.columnSelector.setColumns([]);
+    } finally {
+      this.state.columnsLoading = false;
     }
   }
 
@@ -596,17 +625,13 @@ export class PageTrainRetrain extends HTMLElement {
     this.state.selectedAlgorithmId = this.state.initialAlgorithmId;
     this.state.algorithmConfigurationId = details.algorithmConfigurationId != null ? String(details.algorithmConfigurationId) : null;
 
-    this.state.initialOptions = details.algorithmOptions ?? "";
-    this.state.options = this.state.initialOptions;
-    this.refs.optionsInput.value = this.state.options;
+    // Load algorithm options for the initial algorithm
+    if (this.state.initialAlgorithmId) {
+      void this.loadAlgorithmOptions(parseInt(this.state.initialAlgorithmId));
+    }
 
-    this.state.initialBasicColumns = details.basicAttributesColumns ?? "";
-    this.state.basicColumns = this.state.initialBasicColumns;
-    this.refs.basicColumnsInput.value = this.state.basicColumns;
-
-    this.state.initialTargetColumn = details.targetColumn ?? "";
-    this.state.targetColumn = this.state.initialTargetColumn;
-    this.refs.targetColumnInput.value = this.state.targetColumn;
+    // Note: Column selection will be applied when user uploads a new dataset
+    // or will use the original values if no new dataset is provided
 
     this.setFile(null);
     this.renderAlgorithmOptions();
@@ -651,6 +676,16 @@ export class PageTrainRetrain extends HTMLElement {
       this.refs.datasetInput.value = "";
     }
     this.refs.clearFileBtn.disabled = !file || this.state.submitting;
+
+    if (file) {
+      void this.loadDatasetColumns(file);
+    } else {
+      // Reset columns only if there's no file and no details
+      if (!this.state.details || (!this.state.details.basicAttributesColumns && !this.state.details.targetColumn)) {
+        this.refs.columnSelector.setColumns([]);
+      }
+    }
+
     this.updateDatasetDisplay();
     this.updateSubmitState();
   }
@@ -725,21 +760,21 @@ export class PageTrainRetrain extends HTMLElement {
   private resetOverrides() {
     this.setFile(null);
     if (!this.state.details) {
-      this.state.options = "";
-      this.state.basicColumns = "";
-      this.state.targetColumn = "";
-      this.refs.optionsInput.value = "";
-      this.refs.basicColumnsInput.value = "";
-      this.refs.targetColumnInput.value = "";
+      // Reset components to empty
+      this.refs.optionsConfigurator.setOptions([]);
+      this.refs.columnSelector.setColumns([]);
     } else {
-      this.state.options = this.state.initialOptions;
-      this.state.basicColumns = this.state.initialBasicColumns;
-      this.state.targetColumn = this.state.initialTargetColumn;
+      // Reset to initial values from details
       this.state.selectedAlgorithmId = this.state.initialAlgorithmId;
-      this.refs.optionsInput.value = this.state.options;
-      this.refs.basicColumnsInput.value = this.state.basicColumns;
-      this.refs.targetColumnInput.value = this.state.targetColumn;
       this.renderAlgorithmOptions();
+
+      // Reload algorithm options
+      if (this.state.initialAlgorithmId) {
+        void this.loadAlgorithmOptions(parseInt(this.state.initialAlgorithmId));
+      }
+
+      // Note: Column selection will reset when user uploads a new dataset
+      // If no new dataset is uploaded, original column indices will be used
     }
 
     this.updateSubmitState();
@@ -770,10 +805,6 @@ export class PageTrainRetrain extends HTMLElement {
     this.refs.resetButton.disabled = this.state.submitting || !this.state.details;
     this.refs.chooseFileBtn.disabled = this.state.submitting;
     this.refs.clearFileBtn.disabled = !this.selectedFile || this.state.submitting;
-
-    this.refs.basicColumnsInput.disabled = this.state.submitting || !this.state.details;
-    this.refs.targetColumnInput.disabled = this.state.submitting || !this.state.details;
-    this.refs.optionsInput.disabled = this.state.submitting || !this.canEditAlgorithm();
 
     this.refs.trainingSelect.disabled = this.state.mode !== "training" || this.state.optionsLoading || !!this.state.optionsError;
     this.refs.modelSelect.disabled = this.state.mode !== "model" || this.state.optionsLoading || !!this.state.optionsError;
@@ -810,26 +841,22 @@ export class PageTrainRetrain extends HTMLElement {
       formData.append("datasetId", this.state.datasetId);
     }
 
-    const trimmedOptions = this.state.options.trim();
-    const optionsChanged = trimmedOptions !== (this.state.initialOptions ?? "");
-    if (trimmedOptions || optionsChanged) {
-      formData.append("options", trimmedOptions);
+    // Get options from configurator
+    const optionsValue = this.refs.optionsConfigurator.getCliString().trim();
+    if (optionsValue) {
+      formData.append("options", optionsValue);
     }
 
-    const trimmedBasic = this.state.basicColumns.trim();
-    const basicChanged = trimmedBasic !== (this.state.initialBasicColumns ?? "");
-    if (basicChanged || trimmedBasic === "") {
-      if (basicChanged || this.state.initialBasicColumns !== "") {
-        formData.append("basicCharacteristicsColumns", trimmedBasic);
-      }
-    }
+    // Get column selection from selector
+    const columnSelection = this.refs.columnSelector.getSelectionAsStrings();
+    const basicColumns = columnSelection.attributes;
+    const targetColumn = columnSelection.classColumn;
 
-    const trimmedTarget = this.state.targetColumn.trim();
-    const targetChanged = trimmedTarget !== (this.state.initialTargetColumn ?? "");
-    if (targetChanged || trimmedTarget === "") {
-      if (targetChanged || this.state.initialTargetColumn !== "") {
-        formData.append("targetClassColumn", trimmedTarget);
-      }
+    if (basicColumns) {
+      formData.append("basicCharacteristicsColumns", basicColumns);
+    }
+    if (targetColumn) {
+      formData.append("targetClassColumn", targetColumn);
     }
 
     const selectedAlgorithmId = this.state.selectedAlgorithmId;

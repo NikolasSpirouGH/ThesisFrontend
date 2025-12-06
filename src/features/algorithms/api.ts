@@ -1,8 +1,18 @@
 import { handleUnauthorized, handleNetworkError } from "../../core/http";
 
+export type AlgorithmWekaOption = {
+  flag: string;           // e.g., "C", "M", "N"
+  description: string;    // e.g., "Confidence factor for pruning"
+  type: string;           // e.g., "numeric", "boolean", "string"
+  defaultValue: string;   // e.g., "0.25", "2", "true"
+};
+
 export type AlgorithmWeka = {
   id: number;
   name: string;
+  description?: string;
+  options?: AlgorithmWekaOption[];
+  defaultOptionsString?: string;
 };
 
 export type AlgorithmAccessibility = "PUBLIC" | "PRIVATE" | "SHARED";
@@ -76,6 +86,28 @@ export async function fetchAlgorithms(): Promise<AlgorithmWeka[]> {
     }
 
     return res.json() as Promise<AlgorithmWeka[]>;
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
+  }
+}
+
+export async function fetchAlgorithmWithOptions(id: number): Promise<AlgorithmWeka> {
+  try {
+    const res = await fetch(`/api/algorithms/weka/${id}/options`, {
+      method: "GET",
+      headers: {
+        Accept: "application/json"
+      }
+    });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      throw new Error(`Failed to load algorithm options (${res.status})`);
+    }
+
+    return res.json() as Promise<AlgorithmWeka>;
   } catch (error) {
     handleNetworkError(error);
     throw error;

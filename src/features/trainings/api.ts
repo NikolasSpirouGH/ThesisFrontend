@@ -1,5 +1,18 @@
 import { handleUnauthorized, handleNetworkError } from "../../core/http";
 
+export type DatasetColumn = {
+  index: number;           // 1-based index
+  name: string;            // Column name
+  type: string;            // "numeric", "nominal", "string", "date"
+  distinctValues?: number; // For nominal attributes
+};
+
+export type DatasetColumnsResponse = {
+  columns: DatasetColumn[];
+  totalRows: number;
+  totalColumns: number;
+};
+
 export type TrainingItem = {
   trainingId: number;
   algorithmName: string | null;
@@ -337,6 +350,29 @@ export async function startCustomTraining(request: CustomTrainingRequest, token?
 
     const response = await res.json();
     return { taskId: response.dataHeader || response.data };
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
+  }
+}
+
+export async function parseDatasetColumns(file: File): Promise<DatasetColumnsResponse> {
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const res = await fetch("/api/train/parse-dataset-columns", {
+      method: "POST",
+      body: formData
+    });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      throw new Error(`Failed to parse dataset columns (${res.status})`);
+    }
+
+    return res.json() as Promise<DatasetColumnsResponse>;
   } catch (error) {
     handleNetworkError(error);
     throw error;

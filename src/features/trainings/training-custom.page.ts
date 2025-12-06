@@ -2,10 +2,12 @@ import { getToken } from "../../core/auth.store";
 import { UnauthorizedError } from "../../core/http";
 import { fetchCustomAlgorithms } from "../algorithms/api";
 import type { CustomAlgorithm } from "../algorithms/api";
-import { startCustomTraining } from "./api";
+import { startCustomTraining, parseDatasetColumns } from "./api";
 import type { CustomTrainingRequest } from "./api";
 import { getTaskStatus, stopTask } from "../tasks/api";
 import styles from "./styles/training-custom.css?raw";
+import "./components/dataset-column-selector";
+import type { DatasetColumnSelector } from "./components/dataset-column-selector";
 
 type StatusTone = "info" | "success" | "error" | "warning";
 
@@ -14,6 +16,7 @@ type ComponentState = {
   algorithmsLoading: boolean;
   algorithmsError: string | null;
   selectedAlgorithmId: string;
+  columnsLoading: boolean;
   basicColumns: string;
   targetColumn: string;
   submitting: boolean;
@@ -36,8 +39,7 @@ type Refs = {
   datasetFileName: HTMLElement;
   paramsFileName: HTMLElement;
   algorithmSelect: HTMLSelectElement;
-  basicColumnsInput: HTMLInputElement;
-  targetColumnInput: HTMLInputElement;
+  columnSelector: DatasetColumnSelector;
   submitButton: HTMLButtonElement;
   resetButton: HTMLButtonElement;
   stopButton: HTMLButtonElement;
@@ -58,6 +60,7 @@ export class PageTrainCustom extends HTMLElement {
     algorithmsLoading: true,
     algorithmsError: null,
     selectedAlgorithmId: "",
+    columnsLoading: false,
     basicColumns: "",
     targetColumn: "",
     submitting: false,
@@ -151,31 +154,11 @@ export class PageTrainCustom extends HTMLElement {
             <input type="file" style="position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;" data-ref="parametersInput" accept=".json">
           </div>
 
-          <!-- Feature Columns -->
-          <div class="field">
-            <span>Feature Columns (Optional)</span>
-            <input
-              type="text"
-              name="basicColumns"
-              id="basicColumns"
-              data-ref="basicColumnsInput"
-              placeholder="e.g., age,income,balance"
-            >
-            <small>Comma-separated list of feature columns. If empty, all columns except the last will be used.</small>
-          </div>
-
-          <!-- Target Column -->
-          <div class="field">
-            <span>Target Column (Optional)</span>
-            <input
-              type="text"
-              name="targetColumn"
-              id="targetColumn"
-              data-ref="targetColumnInput"
-              placeholder="e.g., class"
-            >
-            <small>The target (class) column to predict. If empty, the last column will be used.</small>
-          </div>
+          <!-- Dataset Column Selection -->
+          <fieldset class="group">
+            <legend>Dataset Column Selection</legend>
+            <dataset-column-selector data-ref="columnSelector"></dataset-column-selector>
+          </fieldset>
 
           <div class="form__actions">
             <button type="button" class="btn ghost" data-ref="resetButton">Reset Form</button>
@@ -209,8 +192,7 @@ export class PageTrainCustom extends HTMLElement {
       datasetFileName: query("datasetFileName"),
       paramsFileName: query("paramsFileName"),
       algorithmSelect: query("algorithmSelect"),
-      basicColumnsInput: query("basicColumnsInput"),
-      targetColumnInput: query("targetColumnInput"),
+      columnSelector: query("columnSelector"),
       submitButton: query("submitButton"),
       resetButton: query("resetButton"),
       stopButton: query("stopButton"),
@@ -241,14 +223,6 @@ export class PageTrainCustom extends HTMLElement {
     // State binding
     this.refs.algorithmSelect.addEventListener("change", (e) => {
       this.state.selectedAlgorithmId = (e.target as HTMLSelectElement).value;
-    });
-
-    this.refs.basicColumnsInput.addEventListener("input", (e) => {
-      this.state.basicColumns = (e.target as HTMLInputElement).value;
-    });
-
-    this.refs.targetColumnInput.addEventListener("input", (e) => {
-      this.state.targetColumn = (e.target as HTMLInputElement).value;
     });
   }
 
@@ -287,6 +261,7 @@ export class PageTrainCustom extends HTMLElement {
       this.selectedDatasetFile = file;
       this.refs.datasetFileName.textContent = file.name;
       this.toggleDropzoneView(this.refs.dropzoneDataset, true);
+      void this.loadDatasetColumns(file);
     }
   }
 
@@ -299,8 +274,33 @@ export class PageTrainCustom extends HTMLElement {
     }
   }
 
+  private async loadDatasetColumns(file: File) {
+    this.state.columnsLoading = true;
+
+    try {
+      const response = await parseDatasetColumns(file);
+
+      if (response.columns && response.columns.length > 0) {
+        this.refs.columnSelector.setColumns(response.columns);
+      } else {
+        this.refs.columnSelector.setColumns([]);
+        this.showStatus("No columns found in dataset", "warning");
+      }
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Failed to parse dataset columns";
+      this.showStatus(message, "warning");
+      this.refs.columnSelector.setColumns([]);
+    } finally {
+      this.state.columnsLoading = false;
+    }
+  }
+
   private clearDatasetFile() {
     this.selectedDatasetFile = null;
+    this.refs.columnSelector.setColumns([]);
     this.refs.datasetInput.value = "";
     this.toggleDropzoneView(this.refs.dropzoneDataset, false);
   }
@@ -432,12 +432,15 @@ export class PageTrainCustom extends HTMLElement {
         throw new UnauthorizedError();
       }
 
+      // Get column selection as names (custom training uses names, not indices)
+      const columnSelection = this.refs.columnSelector.getSelectionAsNames();
+
       const request: CustomTrainingRequest = {
         algorithmId: parseInt(this.state.selectedAlgorithmId),
         datasetFile: this.selectedDatasetFile!,
         parametersFile: this.selectedParametersFile || undefined,
-        basicAttributesColumns: this.state.basicColumns || undefined,
-        targetColumn: this.state.targetColumn || undefined
+        basicAttributesColumns: columnSelection.attributes || undefined,
+        targetColumn: columnSelection.classColumn || undefined
       };
 
       const result = await startCustomTraining(request, token);

@@ -1,10 +1,14 @@
 import { getToken } from "../../core/auth.store";
 import { UnauthorizedError } from "../../core/http";
-import { fetchAlgorithms } from "../algorithms/api";
+import { fetchAlgorithms, fetchAlgorithmWithOptions } from "../algorithms/api";
 import type { AlgorithmWeka } from "../algorithms/api";
-import { startTraining } from "./api";
+import { startTraining, parseDatasetColumns } from "./api";
 import { getTaskStatus, stopTask } from "../tasks/api";
 import styles from "./styles/training-weka.css?raw";
+import "./components/algorithm-options-configurator";
+import type { AlgorithmOptionsConfigurator } from "./components/algorithm-options-configurator";
+import "./components/dataset-column-selector";
+import type { DatasetColumnSelector } from "./components/dataset-column-selector";
 
 type StatusTone = "info" | "success" | "error" | "warning";
 
@@ -13,6 +17,9 @@ type ComponentState = {
   algorithmsLoading: boolean;
   algorithmsError: string | null;
   selectedAlgorithmId: string;
+  selectedAlgorithm: AlgorithmWeka | null;
+  optionsLoading: boolean;
+  columnsLoading: boolean;
   options: string;
   basicColumns: string;
   targetColumn: string;
@@ -31,9 +38,8 @@ type Refs = {
   clearFileBtn: HTMLButtonElement;
   fileName: HTMLElement;
   algorithmSelect: HTMLSelectElement;
-  optionsInput: HTMLInputElement;
-  basicColumnsInput: HTMLInputElement;
-  targetColumnInput: HTMLInputElement;
+  optionsConfigurator: AlgorithmOptionsConfigurator;
+  columnSelector: DatasetColumnSelector;
   submitButton: HTMLButtonElement;
   resetButton: HTMLButtonElement;
   stopButton: HTMLButtonElement;
@@ -54,6 +60,9 @@ export class PageTrainWeka extends HTMLElement {
     algorithmsLoading: true,
     algorithmsError: null,
     selectedAlgorithmId: "",
+    selectedAlgorithm: null,
+    optionsLoading: false,
+    columnsLoading: false,
     options: "",
     basicColumns: "",
     targetColumn: "",
@@ -125,25 +134,16 @@ export class PageTrainWeka extends HTMLElement {
                   <option value="" disabled selected>Loading algorithms…</option>
                 </select>
               </label>
-              <label class="field">
-                <span>Options (optional)</span>
-                <input type="text" id="options" placeholder="e.g. -C 0.5 -M 2" autocomplete="off" />
-                <small>Provide standard Weka flags. Leave blank to use the algorithm defaults.</small>
-              </label>
+              <div class="field">
+                <span>Algorithm Options</span>
+                <algorithm-options-configurator data-ref="optionsConfigurator"></algorithm-options-configurator>
+                <small>Configure algorithm parameters. Default values are pre-filled.</small>
+              </div>
             </fieldset>
 
             <fieldset class="group">
-              <legend>Dataset configuration (optional)</legend>
-              <label class="field">
-                <span>Attribute columns</span>
-                <input type="text" id="basicColumns" placeholder="e.g. 1,2,3" inputmode="numeric" autocomplete="off" />
-                <small>Comma-separated column numbers to include during training.</small>
-              </label>
-              <label class="field">
-                <span>Class column</span>
-                <input type="text" id="targetColumn" placeholder="e.g. 4" inputmode="numeric" autocomplete="off" />
-                <small>Column number representing the target class. Leave empty to use the dataset default.</small>
-              </label>
+              <legend>Dataset Column Selection</legend>
+              <dataset-column-selector data-ref="columnSelector"></dataset-column-selector>
             </fieldset>
 
             <div class="form__actions">
@@ -170,9 +170,8 @@ export class PageTrainWeka extends HTMLElement {
     const clearFileBtn = this.root.querySelector<HTMLButtonElement>("[data-action='clear-file']");
     const fileName = this.root.querySelector<HTMLElement>("[data-file-name]");
     const algorithmSelect = this.root.querySelector<HTMLSelectElement>("#algorithm");
-    const optionsInput = this.root.querySelector<HTMLInputElement>("#options");
-    const basicColumnsInput = this.root.querySelector<HTMLInputElement>("#basicColumns");
-    const targetColumnInput = this.root.querySelector<HTMLInputElement>("#targetColumn");
+    const optionsConfigurator = this.root.querySelector<AlgorithmOptionsConfigurator>("[data-ref='optionsConfigurator']");
+    const columnSelector = this.root.querySelector<DatasetColumnSelector>("[data-ref='columnSelector']");
     const submitButton = this.root.querySelector<HTMLButtonElement>(".form__actions .btn.primary");
     const resetButton = this.root.querySelector<HTMLButtonElement>("[data-action='reset']");
     const stopButton = this.root.querySelector<HTMLButtonElement>("[data-action='stop']");
@@ -180,7 +179,7 @@ export class PageTrainWeka extends HTMLElement {
 
     if (
       !form || !datasetInput || !dropzone || !chooseFileBtn || !clearFileBtn || !fileName ||
-      !algorithmSelect || !optionsInput || !basicColumnsInput || !targetColumnInput ||
+      !algorithmSelect || !optionsConfigurator || !columnSelector ||
       !submitButton || !resetButton || !stopButton || !statusBanner
     ) {
       throw new Error("Missing training form elements");
@@ -194,9 +193,8 @@ export class PageTrainWeka extends HTMLElement {
       clearFileBtn,
       fileName,
       algorithmSelect,
-      optionsInput,
-      basicColumnsInput,
-      targetColumnInput,
+      optionsConfigurator,
+      columnSelector,
       submitButton,
       resetButton,
       stopButton,
@@ -221,16 +219,9 @@ export class PageTrainWeka extends HTMLElement {
       const value = (event.target as HTMLSelectElement).value;
       this.state.selectedAlgorithmId = value;
       this.updateSubmitState();
-    });
-
-    this.refs.optionsInput.addEventListener("input", (event) => {
-      this.state.options = (event.target as HTMLInputElement).value;
-    });
-    this.refs.basicColumnsInput.addEventListener("input", (event) => {
-      this.state.basicColumns = (event.target as HTMLInputElement).value;
-    });
-    this.refs.targetColumnInput.addEventListener("input", (event) => {
-      this.state.targetColumn = (event.target as HTMLInputElement).value;
+      if (value) {
+        void this.loadAlgorithmOptions(parseInt(value));
+      }
     });
 
     this.refs.resetButton.addEventListener("click", () => this.resetForm(true));
@@ -267,6 +258,54 @@ export class PageTrainWeka extends HTMLElement {
       this.showStatus(message, "error");
     } finally {
       this.updateSubmitState();
+    }
+  }
+
+  private async loadAlgorithmOptions(algorithmId: number) {
+    this.state.optionsLoading = true;
+
+    try {
+      const algorithm = await fetchAlgorithmWithOptions(algorithmId);
+      this.state.selectedAlgorithm = algorithm;
+
+      if (algorithm.options && algorithm.options.length > 0) {
+        this.refs.optionsConfigurator.setOptions(algorithm.options);
+      } else {
+        this.refs.optionsConfigurator.setOptions([]);
+      }
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Failed to load algorithm options";
+      this.showStatus(message, "warning");
+      this.refs.optionsConfigurator.setOptions([]);
+    } finally {
+      this.state.optionsLoading = false;
+    }
+  }
+
+  private async loadDatasetColumns(file: File) {
+    this.state.columnsLoading = true;
+
+    try {
+      const response = await parseDatasetColumns(file);
+
+      if (response.columns && response.columns.length > 0) {
+        this.refs.columnSelector.setColumns(response.columns);
+      } else {
+        this.refs.columnSelector.setColumns([]);
+        this.showStatus("No columns found in dataset", "warning");
+      }
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Failed to parse dataset columns";
+      this.showStatus(message, "warning");
+      this.refs.columnSelector.setColumns([]);
+    } finally {
+      this.state.columnsLoading = false;
     }
   }
 
@@ -331,6 +370,13 @@ export class PageTrainWeka extends HTMLElement {
     this.selectedFile = file;
     this.refs.fileName.textContent = file ? file.name : "No file selected";
     this.refs.clearFileBtn.disabled = !file || this.state.submitting;
+
+    if (file) {
+      void this.loadDatasetColumns(file);
+    } else {
+      this.refs.columnSelector.setColumns([]);
+    }
+
     this.updateSubmitState();
   }
 
@@ -348,9 +394,6 @@ export class PageTrainWeka extends HTMLElement {
 
     this.refs.algorithmSelect.disabled = this.state.algorithmsLoading || !!this.state.algorithmsError || this.state.submitting;
     this.refs.chooseFileBtn.disabled = this.state.submitting;
-    this.refs.basicColumnsInput.disabled = this.state.submitting;
-    this.refs.targetColumnInput.disabled = this.state.submitting;
-    this.refs.optionsInput.disabled = this.state.submitting;
     this.refs.resetButton.disabled = this.state.submitting;
     this.refs.clearFileBtn.disabled = !this.selectedFile || this.state.submitting;
   }
@@ -374,21 +417,12 @@ export class PageTrainWeka extends HTMLElement {
       return;
     }
 
-    const basicRaw = (this.state.basicColumns || this.refs.basicColumnsInput.value).trim();
-    const basicColumns = basicRaw.replace(/\s+/g, "");
-    if (basicColumns && !/^\d+(,\d+)*$/.test(basicColumns)) {
-      this.showStatus("Attributes must be comma-separated numbers (e.g. 1,2,3).", "error");
-      return;
-    }
+    // Get column selection from selector
+    const columnSelection = this.refs.columnSelector.getSelectionAsStrings();
+    const basicColumns = columnSelection.attributes;
+    const targetColumn = columnSelection.classColumn;
 
-    const targetRaw = (this.state.targetColumn || this.refs.targetColumnInput.value).trim();
-    const targetColumn = targetRaw.replace(/\s+/g, "");
-    if (targetColumn && !/^\d+$/.test(targetColumn)) {
-      this.showStatus("Class column must be a numeric value (e.g. 4).", "error");
-      return;
-    }
-
-    const optionsValue = (this.state.options || this.refs.optionsInput.value).trim();
+    const optionsValue = this.refs.optionsConfigurator.getCliString().trim();
     const formData = new FormData();
     formData.append("file", this.selectedFile);
     formData.append("algorithmId", algorithmId);
@@ -404,9 +438,6 @@ export class PageTrainWeka extends HTMLElement {
     this.state.options = optionsValue;
     this.state.basicColumns = basicColumns;
     this.state.targetColumn = targetColumn;
-    this.refs.basicColumnsInput.value = basicColumns;
-    this.refs.targetColumnInput.value = targetColumn;
-    this.refs.optionsInput.value = optionsValue;
 
     this.state.taskId = null;
     this.state.taskStatus = null;
@@ -548,11 +579,16 @@ export class PageTrainWeka extends HTMLElement {
     this.refs.form.reset();
     this.setFile(null);
     this.state.selectedAlgorithmId = "";
+    this.state.selectedAlgorithm = null;
     this.state.options = "";
     this.state.basicColumns = "";
     this.state.targetColumn = "";
     this.state.taskId = null;
     this.state.taskStatus = null;
+
+    // Reset components
+    this.refs.optionsConfigurator.setOptions([]);
+    this.refs.columnSelector.setColumns([]);
 
     if (this.state.algorithms.length > 0) {
       this.populateAlgorithms(this.state.algorithms);
