@@ -30,12 +30,18 @@ class PageTrainings extends HTMLElement {
   private searchParams: TrainingSearchParams = {};
   private currentPage = 1;
   private itemsPerPage = 10;
+  private pollTimer: number | null = null;
 
   connectedCallback() {
     this.root = this.shadowRoot ?? this.attachShadow({ mode: "open" });
     this.render();
     void this.loadAlgorithms();
     void this.loadTrainings();
+    this.startPolling();
+  }
+
+  disconnectedCallback() {
+    this.stopPolling();
   }
 
   private render() {
@@ -492,6 +498,27 @@ class PageTrainings extends HTMLElement {
     } finally {
       this.loading = false;
       this.render();
+    }
+  }
+
+  private startPolling() {
+    this.stopPolling();
+    // Poll every 5 seconds to check for status updates
+    this.pollTimer = window.setInterval(() => {
+      // Only poll if there are running/requested trainings
+      const hasActiveTrainings = this.trainings.some(
+        (t) => t.status === "RUNNING" || t.status === "REQUESTED"
+      );
+      if (hasActiveTrainings) {
+        void this.loadTrainings(true);
+      }
+    }, 5000);
+  }
+
+  private stopPolling() {
+    if (this.pollTimer !== null) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
     }
   }
 

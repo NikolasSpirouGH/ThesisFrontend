@@ -1,4 +1,4 @@
-import { handleUnauthorized, handleNetworkError } from "../../core/http";
+import { handleUnauthorized, handleNetworkError, getDirectApiUrl } from "../../core/http";
 
 export type AlgorithmWekaOption = {
   flag: string;           // e.g., "C", "M", "N"
@@ -146,7 +146,11 @@ export async function createCustomAlgorithm(
       headers.Authorization = `Bearer ${token}`;
     }
 
-    const res = await fetch("/api/algorithms/createCustomAlgorithm", {
+    // Use direct backend URL to bypass Vite proxy for large file uploads
+    const directApiUrl = getDirectApiUrl();
+    const url = `${directApiUrl}/api/algorithms/createCustomAlgorithm`;
+
+    const res = await fetch(url, {
       method: "POST",
       headers,
       body: form

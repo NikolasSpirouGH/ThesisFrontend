@@ -42,3 +42,17 @@ function isNetworkError(error: any): boolean {
   error.name === 'NetworkError' ||
   (error.code && ['NETWORK_ERROR', 'ERR_NETWORK', 'ERR_INTERNET_DISCONNECTED'].includes(error.code));
 }
+
+/**
+ * Get the direct backend API URL, bypassing Vite proxy.
+ * Used for large file uploads to avoid proxy limitations.
+ */
+export function getDirectApiUrl(): string {
+  // Check if we're running locally (accessing via localhost)
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    // Local development - use direct backend port
+    return 'http://localhost:8080';
+  }
+  // Production/k8s - use relative path (goes to same host)
+  return '';
+}
