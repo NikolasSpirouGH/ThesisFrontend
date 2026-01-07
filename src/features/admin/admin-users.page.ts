@@ -24,6 +24,7 @@ export class PageAdminUsers extends HTMLElement {
   private users: User[] = [];
   private filteredUsers: User[] = [];
   private selectedUser: User | null = null;
+  private editingUser: User | null = null;
   private searchQuery: string = '';
   private statusFilter: string = 'all';
   private roleFilter: string = 'all';
@@ -117,6 +118,8 @@ export class PageAdminUsers extends HTMLElement {
             </div>
           </div>
         </div>
+
+        ${this.editingUser ? this.renderEditModal() : ''}
       </main>
     `;
 
@@ -146,6 +149,21 @@ export class PageAdminUsers extends HTMLElement {
     roleFilter?.addEventListener('change', (e) => {
       this.roleFilter = (e.target as HTMLSelectElement).value;
       this.filterUsers();
+    });
+
+    // Edit modal bindings
+    const editModalClose = this.q<HTMLButtonElement>('#editModalClose');
+    const editModalOverlay = this.q<HTMLDivElement>('#editModalOverlay');
+    const cancelEditBtn = this.q<HTMLButtonElement>('#cancelEditBtn');
+    const editUserForm = this.q<HTMLFormElement>('#editUserForm');
+
+    editModalClose?.addEventListener('click', () => this.closeEditModal());
+    editModalOverlay?.addEventListener('click', () => this.closeEditModal());
+    cancelEditBtn?.addEventListener('click', () => this.closeEditModal());
+
+    editUserForm?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await this.handleEditSubmit(editUserForm);
     });
   }
 
@@ -332,7 +350,9 @@ export class PageAdminUsers extends HTMLElement {
 
     editBtn?.addEventListener('click', () => {
       if (this.selectedUser) {
-        window.location.hash = `#/admin/users/edit/${this.selectedUser.username}`;
+        this.editingUser = this.selectedUser;
+        this.closeModal(); // Close detail modal
+        this.render(); // Re-render to show edit modal
       }
     });
 
@@ -347,6 +367,105 @@ export class PageAdminUsers extends HTMLElement {
     const modal = this.q<HTMLDivElement>('#userModal');
     modal?.classList.remove('show');
     this.selectedUser = null;
+  }
+
+  private closeEditModal() {
+    this.editingUser = null;
+    this.render();
+  }
+
+  private renderEditModal(): string {
+    if (!this.editingUser) return '';
+
+    const user = this.editingUser;
+
+    return `
+      <div class="modal show" id="editModal">
+        <div class="modal-overlay" id="editModalOverlay"></div>
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>Edit User: ${this.escapeHtml(user.username)}</h2>
+            <button class="modal-close" id="editModalClose">✕</button>
+          </div>
+          <form class="modal-body" id="editUserForm">
+            <div class="detail-grid">
+              <div class="detail-item">
+                <label>First Name</label>
+                <input type="text" name="firstName" value="${this.escapeHtml(user.firstName || '')}" class="input" />
+              </div>
+              <div class="detail-item">
+                <label>Last Name</label>
+                <input type="text" name="lastName" value="${this.escapeHtml(user.lastName || '')}" class="input" />
+              </div>
+              <div class="detail-item">
+                <label>Email *</label>
+                <input type="email" name="email" value="${this.escapeHtml(user.email)}" required class="input" />
+              </div>
+              <div class="detail-item">
+                <label>Age</label>
+                <input type="number" name="age" value="${user.age || ''}" min="1" max="150" class="input" />
+              </div>
+              <div class="detail-item">
+                <label>Profession</label>
+                <input type="text" name="profession" value="${this.escapeHtml(user.profession || '')}" class="input" />
+              </div>
+              <div class="detail-item">
+                <label>Country</label>
+                <input type="text" name="country" value="${this.escapeHtml(user.country || '')}" class="input" />
+              </div>
+            </div>
+            <div class="detail-actions">
+              <button type="button" class="btn secondary" id="cancelEditBtn">Cancel</button>
+              <button type="submit" class="btn primary" id="saveEditBtn">Save Changes</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+  }
+
+  private async handleEditSubmit(form: HTMLFormElement) {
+    if (!this.editingUser) return;
+
+    const formData = new FormData(form);
+    const data = {
+      firstName: formData.get('firstName') as string || undefined,
+      lastName: formData.get('lastName') as string || undefined,
+      email: formData.get('email') as string,
+      age: formData.get('age') ? parseInt(formData.get('age') as string) : undefined,
+      profession: formData.get('profession') as string || undefined,
+      country: formData.get('country') as string || undefined
+    };
+
+    const token = getToken();
+    if (!token) return;
+
+    try {
+      const res = await fetch(`/api/users/updateByAdmin/${this.editingUser.username}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(data)
+      });
+
+      if (res.ok) {
+        alert(`User "${this.editingUser.username}" updated successfully!`);
+        this.closeEditModal();
+        await this.loadUsers();
+      } else {
+        const text = await res.text();
+        alert(`Failed to update user: ${text}`);
+      }
+    } catch (err: any) {
+      try {
+        handleNetworkError(err);
+      } catch (networkErr) {
+        return;
+      }
+      alert(err?.message ?? 'Network error');
+    }
   }
 
   private async confirmDeleteUser(user: User) {

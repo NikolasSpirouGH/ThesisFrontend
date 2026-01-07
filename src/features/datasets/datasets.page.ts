@@ -1,4 +1,4 @@
-import { getToken } from "../../core/auth.store";
+import { getToken, getUser } from "../../core/auth.store";
 import { UnauthorizedError } from "../../core/http";
 import { fetchDatasets, uploadDataset, deleteDataset, downloadDataset } from "./api";
 import type { DatasetDTO, DatasetUploadRequest } from "./api";
@@ -212,6 +212,10 @@ class PageDatasets extends HTMLElement {
     const isDeleting = busyState === "delete";
     const isDownloading = busyState === "download";
 
+    // Check if current user is the owner
+    const currentUser = getUser<{ username?: string }>();
+    const isOwner = currentUser?.username === dataset.ownerUsername;
+
     return `
       <tr>
         <td>
@@ -248,12 +252,14 @@ class PageDatasets extends HTMLElement {
                 data-dataset-download="${dataset.id}"
                 ${isDownloading ? "disabled" : ""}
               >${isDownloading ? "Downloading…" : "Download"}</button>
-              <button
-                class="dropdown-item dropdown-item--danger"
-                type="button"
-                data-dataset-delete="${dataset.id}"
-                ${isDeleting ? "disabled" : ""}
-              >${isDeleting ? "Deleting…" : "Delete"}</button>
+              ${isOwner ? `
+                <button
+                  class="dropdown-item dropdown-item--danger"
+                  type="button"
+                  data-dataset-delete="${dataset.id}"
+                  ${isDeleting ? "disabled" : ""}
+                >${isDeleting ? "Deleting…" : "Delete"}</button>
+              ` : ""}
             </div>
           </div>
         </td>

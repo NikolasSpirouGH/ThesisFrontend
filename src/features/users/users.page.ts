@@ -1,3 +1,4 @@
+import styles from './styles/users.page.css?raw';
 import { getToken } from "../../core/auth.store";
 import {
   fetchAllUsers,
@@ -8,6 +9,7 @@ import {
 } from "./api";
 
 export class PageUsers extends HTMLElement {
+  private root!: ShadowRoot;
   private users: UserDTO[] = [];
   private loading = false;
   private error: string | null = null;
@@ -16,8 +18,11 @@ export class PageUsers extends HTMLElement {
   private deleteConfirmUser: UserDTO | null = null;
   private deleteReason = "";
   private searchQuery = "";
+  private pendingEditUsername: string | null = null;
 
   async connectedCallback() {
+    this.root = this.shadowRoot ?? this.attachShadow({ mode: 'open' });
+    this.pendingEditUsername = this.getHashQueryParam("edit");
     this.render();
     await this.loadUsers();
   }
@@ -43,6 +48,11 @@ export class PageUsers extends HTMLElement {
       const token = getToken() ?? undefined;
       this.users = await fetchAllUsers(token);
       this.error = null;
+      if (this.pendingEditUsername) {
+        const username = this.pendingEditUsername;
+        this.pendingEditUsername = null;
+        this.handleEditUser(username);
+      }
     } catch (err: any) {
       console.error("Failed to load users:", err);
       this.error = err?.message ?? "Failed to load users";
@@ -53,7 +63,8 @@ export class PageUsers extends HTMLElement {
   }
 
   private render() {
-    this.innerHTML = `
+    this.root.innerHTML = `
+      <style>${styles}</style>
       <div class="page-users">
         <header class="page-header">
           <h1>User Management</h1>
@@ -247,7 +258,7 @@ export class PageUsers extends HTMLElement {
 
   private attachEventListeners() {
     // Search input
-    const searchInput = this.querySelector("[data-search-input]") as HTMLInputElement;
+    const searchInput = this.root.querySelector("[data-search-input]") as HTMLInputElement;
     if (searchInput) {
       searchInput.addEventListener("input", (e) => {
         this.searchQuery = (e.target as HTMLInputElement).value;
@@ -256,7 +267,7 @@ export class PageUsers extends HTMLElement {
     }
 
     // Edit buttons
-    this.querySelectorAll("[data-user-edit]").forEach((btn) => {
+    this.root.querySelectorAll("[data-user-edit]").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         const username = (e.currentTarget as HTMLElement).dataset.userEdit!;
         await this.handleEditUser(username);
@@ -264,7 +275,7 @@ export class PageUsers extends HTMLElement {
     });
 
     // Delete buttons
-    this.querySelectorAll("[data-user-delete]").forEach((btn) => {
+    this.root.querySelectorAll("[data-user-delete]").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         const username = (e.currentTarget as HTMLElement).dataset.userDelete!;
         this.handleDeletePrompt(username);
@@ -272,12 +283,12 @@ export class PageUsers extends HTMLElement {
     });
 
     // Modal close buttons
-    this.querySelectorAll("[data-modal-close]").forEach((btn) => {
+    this.root.querySelectorAll("[data-modal-close]").forEach((btn) => {
       btn.addEventListener("click", () => this.closeModals());
     });
 
     // Modal overlay click to close
-    const overlay = this.querySelector("[data-modal-overlay]");
+    const overlay = this.root.querySelector("[data-modal-overlay]");
     if (overlay) {
       overlay.addEventListener("click", (e) => {
         if (e.target === overlay) this.closeModals();
@@ -285,7 +296,7 @@ export class PageUsers extends HTMLElement {
     }
 
     // Edit form submission
-    const editForm = this.querySelector("[data-edit-form]") as HTMLFormElement;
+    const editForm = this.root.querySelector("[data-edit-form]") as HTMLFormElement;
     if (editForm) {
       editForm.addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -294,7 +305,7 @@ export class PageUsers extends HTMLElement {
     }
 
     // Delete form submission
-    const deleteForm = this.querySelector("[data-delete-form]") as HTMLFormElement;
+    const deleteForm = this.root.querySelector("[data-delete-form]") as HTMLFormElement;
     if (deleteForm) {
       deleteForm.addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -387,6 +398,15 @@ export class PageUsers extends HTMLElement {
       this.busy.delete(username);
       this.render();
     }
+  }
+
+  private getHashQueryParam(key: string): string | null {
+    const hash = window.location.hash;
+    const queryIndex = hash.indexOf("?");
+    if (queryIndex === -1) return null;
+    const params = new URLSearchParams(hash.slice(queryIndex + 1));
+    const value = params.get(key);
+    return value ? value.trim() : null;
   }
 }
 
