@@ -65,6 +65,7 @@ type ModelInfo = {
   name: string;
   algorithmName: string;
   algorithmType: string;
+  modelType: string;
 };
 
 class PageResults extends HTMLElement {
@@ -236,11 +237,17 @@ class PageResults extends HTMLElement {
         throw new Error("Model not found");
       }
 
+      // Check if this is a custom algorithm model
+      if (model.modelType === "CUSTOM") {
+        throw new Error("Results viewing is only available for predefined Weka algorithms. Custom algorithms do not support result visualizations.");
+      }
+
       this.modelInfo = {
         id: model.id,
         name: model.name || "Unnamed Model",
         algorithmName: model.algorithmName || "Unknown",
-        algorithmType: model.algorithmType
+        algorithmType: model.algorithmType,
+        modelType: model.modelType
       };
 
       this.loading = false;

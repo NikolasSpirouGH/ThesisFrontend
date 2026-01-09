@@ -264,7 +264,8 @@ class PageTrainings extends HTMLElement {
     const isDownloading = busyState === "download";
     const cannotDelete = status === "running" || status === "requested";
     const canDownload = status === "completed";
-    const canViewResults = status === "completed" && training.modelId;
+    const isCustomAlgorithm = training.modelType === "CUSTOM";
+    const canViewResults = status === "completed" && training.modelId && !isCustomAlgorithm;
 
     return `
       <tr>
@@ -296,6 +297,10 @@ class PageTrainings extends HTMLElement {
                   type="button"
                   data-view-results="${training.modelId}"
                 >View Results</button>
+              ` : isCustomAlgorithm && status === "completed" && training.modelId ? `
+                <div class="dropdown-item dropdown-item--info" style="cursor: default; opacity: 0.7; font-size: 0.85rem;">
+                  Results viewing only available for predefined algorithms
+                </div>
               ` : ''}
               <button
                 class="dropdown-item"
