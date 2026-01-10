@@ -17,5 +17,5 @@ RUN chmod -R 777 /app
 # Expose port
 EXPOSE 5173
 
-# Start development server
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+# Start development server with disabled host check for Ingress support
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--strictPort"]
