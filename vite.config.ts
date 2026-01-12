@@ -3,11 +3,11 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   server: {
     host: '0.0.0.0',
-    port: 5173,
+    port: 5174,
     strictPort: true,
     allowedHosts: true, // Allow all hosts for Ingress support
     hmr: {
-      clientPort: 5173
+      clientPort: 5174
     },
     proxy: {
       '/api': {
@@ -19,6 +19,6 @@ export default defineConfig({
   },
   preview: {
     host: '0.0.0.0',
-    port: 5173
+    port: 5174
   }
 });

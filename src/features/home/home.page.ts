@@ -24,6 +24,20 @@ export class PageHome extends HTMLElement {
   connectedCallback() {
     this.root = this.shadowRoot ?? this.attachShadow({ mode: "open" });
     this.render();
+
+    // Re-render when navigating back to this page to show updated user data
+    window.addEventListener('hashchange', this.handleHashChange);
+  }
+
+  disconnectedCallback() {
+    window.removeEventListener('hashchange', this.handleHashChange);
+  }
+
+  private handleHashChange = () => {
+    // Re-render only if we're on the home page
+    if (window.location.hash === '#/' || window.location.hash === '') {
+      this.render();
+    }
   }
 
   private render() {
