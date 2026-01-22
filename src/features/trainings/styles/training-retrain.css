@@ -12,6 +12,11 @@
   box-sizing: border-box;
 }
 
+/* Ensure hidden attribute is respected */
+[hidden] {
+  display: none !important;
+}
+
 .page {
   max-width: 1100px;
   margin: 0 auto;

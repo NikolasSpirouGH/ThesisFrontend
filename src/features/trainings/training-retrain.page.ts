@@ -2,7 +2,7 @@ import { getToken } from "../../core/auth.store";
 import { UnauthorizedError } from "../../core/http";
 import { fetchAlgorithms, fetchAlgorithmWithOptions } from "../algorithms/api";
 import type { AlgorithmWeka } from "../algorithms/api";
-import { startTraining, fetchRetrainOptions, fetchRetrainTrainingDetails, fetchRetrainModelDetails, parseDatasetColumns } from "./api";
+import { startTraining, startCustomRetrain, fetchRetrainOptions, fetchRetrainTrainingDetails, fetchRetrainModelDetails, parseDatasetColumns } from "./api";
 import type {
   RetrainModelOption,
   RetrainOptions,
@@ -18,6 +18,7 @@ import type { DatasetColumnSelector } from "./components/dataset-column-selector
 
 type StatusTone = "info" | "success" | "error" | "warning";
 type SourceMode = "training" | "model";
+type TrainingType = "PREDEFINED" | "CUSTOM";
 
 type ComponentState = {
   mode: SourceMode;
@@ -46,6 +47,7 @@ type ComponentState = {
   taskStatus: string | null;
   statusMessage: string | null;
   statusTone: StatusTone | null;
+  trainingType: TrainingType | null;  // Track if selected source is Weka or Custom
 };
 
 type TaskStatusDTO = {
@@ -75,6 +77,12 @@ type Refs = {
   modelWrapper: HTMLElement;
   trainingSelect: HTMLSelectElement;
   modelSelect: HTMLSelectElement;
+  algorithmFieldset: HTMLFieldSetElement;
+  paramsFieldset: HTMLFieldSetElement;
+  paramsInput: HTMLInputElement;
+  paramsFileName: HTMLElement;
+  chooseParamsBtn: HTMLButtonElement;
+  clearParamsBtn: HTMLButtonElement;
 };
 
 export class PageTrainRetrain extends HTMLElement {
@@ -106,9 +114,11 @@ export class PageTrainRetrain extends HTMLElement {
     taskId: null,
     taskStatus: null,
     statusMessage: null,
-    statusTone: null
+    statusTone: null,
+    trainingType: null
   };
   private selectedFile: File | null = null;
+  private selectedParamsFile: File | null = null;
   private pollTimer: number | null = null;
 
   connectedCallback() {
@@ -186,8 +196,8 @@ export class PageTrainRetrain extends HTMLElement {
               </div>
             </fieldset>
 
-            <fieldset class="group">
-              <legend>Algorithm</legend>
+            <fieldset class="group" data-fieldset-algorithm hidden>
+              <legend>Algorithm (Weka)</legend>
               <label class="field">
                 <span>Algorithm</span>
                 <select id="algorithm" required>
@@ -199,6 +209,20 @@ export class PageTrainRetrain extends HTMLElement {
                 <algorithm-options-configurator data-ref="optionsConfigurator"></algorithm-options-configurator>
                 <small>Defaults come from the selected training. Adjust to test a variant.</small>
               </div>
+            </fieldset>
+
+            <fieldset class="group" data-fieldset-params hidden>
+              <legend>Parameters (Custom Algorithm)</legend>
+              <p class="field-hint">Optionally upload a new parameters JSON file to override defaults.</p>
+              <div class="params-upload">
+                <p class="params-file-name" data-params-file-name>No parameters file selected</p>
+                <div class="params-actions">
+                  <button class="btn ghost small" type="button" data-action="choose-params">Select params.json</button>
+                  <button class="btn ghost small" type="button" data-action="clear-params" disabled>Remove</button>
+                </div>
+              </div>
+              <input type="file" id="paramsFile" accept=".json,.JSON" hidden />
+              <small>If not provided, the algorithm's default parameters will be used.</small>
             </fieldset>
 
             <fieldset class="group">
@@ -239,12 +263,19 @@ export class PageTrainRetrain extends HTMLElement {
     const modelWrapper = this.root.querySelector<HTMLElement>("[data-source-model]");
     const trainingSelect = this.root.querySelector<HTMLSelectElement>("#retrainTraining");
     const modelSelect = this.root.querySelector<HTMLSelectElement>("#retrainModel");
+    const algorithmFieldset = this.root.querySelector<HTMLFieldSetElement>("[data-fieldset-algorithm]");
+    const paramsFieldset = this.root.querySelector<HTMLFieldSetElement>("[data-fieldset-params]");
+    const paramsInput = this.root.querySelector<HTMLInputElement>("#paramsFile");
+    const paramsFileName = this.root.querySelector<HTMLElement>("[data-params-file-name]");
+    const chooseParamsBtn = this.root.querySelector<HTMLButtonElement>("[data-action='choose-params']");
+    const clearParamsBtn = this.root.querySelector<HTMLButtonElement>("[data-action='clear-params']");
 
     if (
       !form || !datasetInput || !dropzone || !chooseFileBtn || !clearFileBtn || !fileName || !datasetCaption ||
       !algorithmSelect || !optionsConfigurator || !columnSelector ||
       !submitButton || !resetButton || !stopButton || !statusBanner || !modeTrainingRadio || !modeModelRadio ||
-      !trainingWrapper || !modelWrapper || !trainingSelect || !modelSelect
+      !trainingWrapper || !modelWrapper || !trainingSelect || !modelSelect ||
+      !algorithmFieldset || !paramsFieldset || !paramsInput || !paramsFileName || !chooseParamsBtn || !clearParamsBtn
     ) {
       throw new Error("Missing retrain form elements");
     }
@@ -269,7 +300,13 @@ export class PageTrainRetrain extends HTMLElement {
       trainingWrapper,
       modelWrapper,
       trainingSelect,
-      modelSelect
+      modelSelect,
+      algorithmFieldset,
+      paramsFieldset,
+      paramsInput,
+      paramsFileName,
+      chooseParamsBtn,
+      clearParamsBtn
     } as Refs;
   }
 
@@ -285,6 +322,11 @@ export class PageTrainRetrain extends HTMLElement {
     this.refs.dropzone.addEventListener("drop", (event) => this.handleDrop(event));
 
     this.refs.clearFileBtn.addEventListener("click", () => this.setFile(null));
+
+    // Params file handlers for custom training
+    this.refs.chooseParamsBtn.addEventListener("click", () => this.refs.paramsInput.click());
+    this.refs.paramsInput.addEventListener("change", () => this.handleParamsFileInput(this.refs.paramsInput.files));
+    this.refs.clearParamsBtn.addEventListener("click", () => this.setParamsFile(null));
 
     this.refs.modeTrainingRadio.addEventListener("change", () => this.setMode("training"));
     this.refs.modeModelRadio.addEventListener("change", () => this.setMode("model"));
@@ -444,9 +486,10 @@ export class PageTrainRetrain extends HTMLElement {
 
     select.append(new Option("Select a training", "", true, true));
     this.state.trainings.forEach((training, index) => {
+      const typePrefix = training.trainingType === "CUSTOM" ? "[Custom]" : "[Weka]";
       const sequenceLabel = `Training #${index + 1}`;
       const algorithmPart = training.algorithmName ? ` · ${training.algorithmName}` : "";
-      const label = `${sequenceLabel}${algorithmPart}`;
+      const label = `${typePrefix} ${sequenceLabel}${algorithmPart}`;
       select.append(new Option(label, String(training.trainingId)));
     });
     select.disabled = false;
@@ -476,9 +519,11 @@ export class PageTrainRetrain extends HTMLElement {
 
     select.append(new Option("Select a model", "", true, true));
     this.state.models.forEach((model, index) => {
+      const typePrefix = model.trainingType === "CUSTOM" ? "[Custom]" : "[Weka]";
       const sequenceLabel = `Model #${index + 1}`;
-      const descriptor = model.algorithmName ?? model.datasetName ?? model.modelName ?? "";
-      const label = descriptor ? `${sequenceLabel} · ${descriptor}` : sequenceLabel;
+      // Prioritize modelName for finalized models, then algorithmName, then datasetName
+      const descriptor = model.modelName ?? model.algorithmName ?? model.datasetName ?? "";
+      const label = descriptor ? `${typePrefix} ${sequenceLabel} · ${descriptor}` : `${typePrefix} ${sequenceLabel}`;
       select.append(new Option(label, String(model.modelId)));
     });
 
@@ -492,10 +537,13 @@ export class PageTrainRetrain extends HTMLElement {
     this.state.selectedModelId = "";
     this.state.details = null;
     this.state.datasetName = null;
+    this.state.trainingType = null;
     this.selectedFile = null;
+    this.selectedParamsFile = null;
     this.syncSourceRadios();
     this.updateModeUI();
     this.updateDatasetDisplay();
+    this.updateTrainingTypeUI();
     this.renderAlgorithmOptions();
     this.updateSubmitState();
   }
@@ -528,6 +576,13 @@ export class PageTrainRetrain extends HTMLElement {
     this.state.details = null;
     this.state.datasetName = null;
     this.selectedFile = null;
+    this.selectedParamsFile = null;
+
+    // Find the selected training and set trainingType
+    const selectedTraining = this.state.trainings.find(t => String(t.trainingId) === value);
+    this.state.trainingType = selectedTraining?.trainingType ?? null;
+
+    this.updateTrainingTypeUI();
     this.renderAlgorithmOptions();
     this.updateDatasetDisplay();
     this.updateSubmitState();
@@ -552,6 +607,13 @@ export class PageTrainRetrain extends HTMLElement {
     this.state.details = null;
     this.state.datasetName = null;
     this.selectedFile = null;
+    this.selectedParamsFile = null;
+
+    // Find the selected model and set trainingType
+    const selectedModel = this.state.models.find(m => String(m.modelId) === value);
+    this.state.trainingType = selectedModel?.trainingType ?? null;
+
+    this.updateTrainingTypeUI();
     this.renderAlgorithmOptions();
     this.updateDatasetDisplay();
     this.updateSubmitState();
@@ -706,6 +768,48 @@ export class PageTrainRetrain extends HTMLElement {
     }
   }
 
+  private handleParamsFileInput(files: FileList | null) {
+    const file = files && files.length > 0 ? files[0] : null;
+    if (file) {
+      this.setParamsFile(file);
+    }
+  }
+
+  private setParamsFile(file: File | null) {
+    this.selectedParamsFile = file;
+    if (!file) {
+      this.refs.paramsInput.value = "";
+    }
+    this.refs.clearParamsBtn.disabled = !file || this.state.submitting;
+    this.updateParamsDisplay();
+  }
+
+  private updateParamsDisplay() {
+    if (this.selectedParamsFile) {
+      this.refs.paramsFileName.textContent = this.selectedParamsFile.name;
+    } else {
+      this.refs.paramsFileName.textContent = "No parameters file selected";
+    }
+  }
+
+  private updateTrainingTypeUI() {
+    const isCustom = this.state.trainingType === "CUSTOM";
+    const isPredefined = this.state.trainingType === "PREDEFINED";
+    const hasSelection = this.state.trainingType !== null;
+
+    // Hide both sections if no training/model selected yet
+    // Show algorithm fieldset only for Weka (PREDEFINED)
+    this.refs.algorithmFieldset.hidden = !isPredefined;
+
+    // Show params fieldset only for Custom
+    this.refs.paramsFieldset.hidden = !isCustom;
+
+    // Reset params file when switching away from custom
+    if (!isCustom) {
+      this.setParamsFile(null);
+    }
+  }
+
   private renderAlgorithmOptions() {
     const select = this.refs.algorithmSelect;
     select.innerHTML = "";
@@ -806,6 +910,10 @@ export class PageTrainRetrain extends HTMLElement {
     this.refs.chooseFileBtn.disabled = this.state.submitting;
     this.refs.clearFileBtn.disabled = !this.selectedFile || this.state.submitting;
 
+    // Params file buttons for custom training
+    this.refs.chooseParamsBtn.disabled = this.state.submitting;
+    this.refs.clearParamsBtn.disabled = !this.selectedParamsFile || this.state.submitting;
+
     this.refs.trainingSelect.disabled = this.state.mode !== "training" || this.state.optionsLoading || !!this.state.optionsError;
     this.refs.modelSelect.disabled = this.state.mode !== "model" || this.state.optionsLoading || !!this.state.optionsError;
     this.refs.algorithmSelect.disabled = this.state.submitting || !this.canEditAlgorithm();
@@ -825,57 +933,72 @@ export class PageTrainRetrain extends HTMLElement {
       return;
     }
 
-    const formData = new FormData();
-
-    if (this.state.mode === "training") {
-      formData.append("trainingId", sourceId);
-    } else {
-      formData.append("modelId", sourceId);
-    }
-
-    if (this.selectedFile) {
-      formData.append("file", this.selectedFile);
-    } else if (this.state.datasetConfigurationId) {
-      formData.append("datasetConfigurationId", this.state.datasetConfigurationId);
-    } else if (this.state.datasetId) {
-      formData.append("datasetId", this.state.datasetId);
-    }
-
-    // Get options from configurator
-    const optionsValue = this.refs.optionsConfigurator.getCliString().trim();
-    if (optionsValue) {
-      formData.append("options", optionsValue);
-    }
-
-    // Get column selection from selector
-    const columnSelection = this.refs.columnSelector.getSelectionAsStrings();
-    const basicColumns = columnSelection.attributes;
-    const targetColumn = columnSelection.classColumn;
-
-    if (basicColumns) {
-      formData.append("basicCharacteristicsColumns", basicColumns);
-    }
-    if (targetColumn) {
-      formData.append("targetClassColumn", targetColumn);
-    }
-
-    const selectedAlgorithmId = this.state.selectedAlgorithmId;
-    const initialAlgorithmId = this.state.initialAlgorithmId;
-    if (this.canEditAlgorithm()) {
-      if (selectedAlgorithmId && (!initialAlgorithmId || selectedAlgorithmId !== initialAlgorithmId)) {
-        formData.append("algorithmId", selectedAlgorithmId);
-      } else if (this.state.algorithmConfigurationId) {
-        formData.append("algorithmConfigurationId", this.state.algorithmConfigurationId);
-      }
-    }
-
     this.stopPolling();
     this.setSubmitting(true);
     this.showStatus("Submitting retrain request…", "info");
 
     try {
       const token = getToken() ?? undefined;
-      const response = await startTraining(formData, token);
+      let response: unknown;
+
+      if (this.state.trainingType === "CUSTOM") {
+        // Custom training retrain - use startCustomRetrain
+        response = await startCustomRetrain({
+          trainingId: this.state.mode === "training" ? parseInt(sourceId) : undefined,
+          modelId: this.state.mode === "model" ? parseInt(sourceId) : undefined,
+          datasetFile: this.selectedFile ?? undefined,
+          parametersFile: this.selectedParamsFile ?? undefined,
+          basicAttributesColumns: this.refs.columnSelector.getSelectionAsStrings().attributes ?? undefined,
+          targetColumn: this.refs.columnSelector.getSelectionAsStrings().classColumn ?? undefined
+        }, token);
+      } else {
+        // Weka (PREDEFINED) training retrain - use startTraining
+        const formData = new FormData();
+
+        if (this.state.mode === "training") {
+          formData.append("trainingId", sourceId);
+        } else {
+          formData.append("modelId", sourceId);
+        }
+
+        if (this.selectedFile) {
+          formData.append("file", this.selectedFile);
+        } else if (this.state.datasetConfigurationId) {
+          formData.append("datasetConfigurationId", this.state.datasetConfigurationId);
+        } else if (this.state.datasetId) {
+          formData.append("datasetId", this.state.datasetId);
+        }
+
+        // Get options from configurator
+        const optionsValue = this.refs.optionsConfigurator.getCliString().trim();
+        if (optionsValue) {
+          formData.append("options", optionsValue);
+        }
+
+        // Get column selection from selector
+        const columnSelection = this.refs.columnSelector.getSelectionAsStrings();
+        const basicColumns = columnSelection.attributes;
+        const targetColumn = columnSelection.classColumn;
+
+        if (basicColumns) {
+          formData.append("basicCharacteristicsColumns", basicColumns);
+        }
+        if (targetColumn) {
+          formData.append("targetClassColumn", targetColumn);
+        }
+
+        const selectedAlgorithmId = this.state.selectedAlgorithmId;
+        const initialAlgorithmId = this.state.initialAlgorithmId;
+        if (this.canEditAlgorithm()) {
+          if (selectedAlgorithmId && (!initialAlgorithmId || selectedAlgorithmId !== initialAlgorithmId)) {
+            formData.append("algorithmId", selectedAlgorithmId);
+          } else if (this.state.algorithmConfigurationId) {
+            formData.append("algorithmConfigurationId", this.state.algorithmConfigurationId);
+          }
+        }
+
+        response = await startTraining(formData, token);
+      }
       const taskId = this.extractTaskId(response);
       this.state.taskId = taskId;
       this.state.taskStatus = "PENDING";

@@ -52,6 +52,7 @@ export type RetrainTrainingOption = {
   datasetName: string | null;
   status: string | null;
   modelId: number | null;
+  trainingType: "PREDEFINED" | "CUSTOM";  // PREDEFINED = Weka, CUSTOM = user-defined
 };
 
 export type RetrainModelOption = {
@@ -61,6 +62,7 @@ export type RetrainModelOption = {
   algorithmName: string | null;
   datasetName: string | null;
   status: string | null;
+  trainingType: "PREDEFINED" | "CUSTOM";  // PREDEFINED = Weka, CUSTOM = user-defined
 };
 
 export type RetrainOptions = {
@@ -373,6 +375,64 @@ export async function parseDatasetColumns(file: File): Promise<DatasetColumnsRes
     }
 
     return res.json() as Promise<DatasetColumnsResponse>;
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
+  }
+}
+
+export type CustomRetrainRequest = {
+  trainingId?: number;
+  modelId?: number;
+  datasetFile?: File;
+  parametersFile?: File;
+  basicAttributesColumns?: string;
+  targetColumn?: string;
+};
+
+export async function startCustomRetrain(request: CustomRetrainRequest, token?: string): Promise<{ taskId: string }> {
+  try {
+    const formData = new FormData();
+
+    if (request.trainingId) {
+      formData.append("trainingId", request.trainingId.toString());
+    }
+    if (request.modelId) {
+      formData.append("modelId", request.modelId.toString());
+    }
+    if (request.datasetFile) {
+      formData.append("datasetFile", request.datasetFile);
+    }
+    if (request.parametersFile) {
+      formData.append("parametersFile", request.parametersFile);
+    }
+    if (request.basicAttributesColumns) {
+      formData.append("basicAttributesColumns", request.basicAttributesColumns);
+    }
+    if (request.targetColumn) {
+      formData.append("targetColumn", request.targetColumn);
+    }
+
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const res = await fetch("/api/train/custom", {
+      method: "POST",
+      headers,
+      body: formData
+    });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      const message = await normaliseError(res, "Failed to start custom retraining");
+      throw new Error(`${res.status}: ${message}`);
+    }
+
+    const response = await res.json();
+    return { taskId: response.dataHeader || response.data };
   } catch (error) {
     handleNetworkError(error);
     throw error;
