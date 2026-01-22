@@ -10,6 +10,7 @@ type SelectorState = {
   columns: DatasetColumn[];
   selectedAttributeIndices: Set<number>;
   selectedClassIndex: number | null;
+  hideClassColumn: boolean;  // For clustering algorithms
 };
 
 export class DatasetColumnSelector extends HTMLElement {
@@ -17,7 +18,8 @@ export class DatasetColumnSelector extends HTMLElement {
   private state: SelectorState = {
     columns: [],
     selectedAttributeIndices: new Set(),
-    selectedClassIndex: null
+    selectedClassIndex: null,
+    hideClassColumn: false
   };
 
   connectedCallback() {
@@ -26,21 +28,44 @@ export class DatasetColumnSelector extends HTMLElement {
   }
 
   /**
+   * Set whether to hide the class column selection (for clustering algorithms)
+   */
+  setClusteringMode(isClustering: boolean) {
+    this.state.hideClassColumn = isClustering;
+    if (isClustering) {
+      // For clustering: select all columns as attributes, no class
+      this.state.selectedClassIndex = null;
+      this.state.selectedAttributeIndices = new Set(
+        this.state.columns.map(col => col.index)
+      );
+    }
+    this.render();
+  }
+
+  /**
    * Set the dataset columns and initialize default selection
    * By default: all columns except last are attributes, last is class
+   * For clustering: all columns are attributes, no class
    */
   setColumns(columns: DatasetColumn[]) {
     this.state.columns = columns;
 
-    // Default selection: all columns except last as attributes
-    this.state.selectedAttributeIndices = new Set(
-      columns.slice(0, -1).map(col => col.index)
-    );
-
-    // Last column as class by default
-    this.state.selectedClassIndex = columns.length > 0
-      ? columns[columns.length - 1].index
-      : null;
+    if (this.state.hideClassColumn) {
+      // Clustering mode: all columns as attributes, no class
+      this.state.selectedAttributeIndices = new Set(
+        columns.map(col => col.index)
+      );
+      this.state.selectedClassIndex = null;
+    } else {
+      // Default: all columns except last as attributes
+      this.state.selectedAttributeIndices = new Set(
+        columns.slice(0, -1).map(col => col.index)
+      );
+      // Last column as class by default
+      this.state.selectedClassIndex = columns.length > 0
+        ? columns[columns.length - 1].index
+        : null;
+    }
 
     this.render();
   }
@@ -118,9 +143,20 @@ export class DatasetColumnSelector extends HTMLElement {
   }
 
   private renderColumns(): string {
+    const classSection = this.state.hideClassColumn ? '' : `
+        <div class="column-section">
+          <h5>Class Column</h5>
+          <p class="column-section__hint">Select the target/class column to predict</p>
+          <div class="column-list">
+            ${this.state.columns.map(col => this.renderClassRadio(col)).join("")}
+          </div>
+        </div>
+    `;
+
     return `
       <div class="column-selector__header">
         <h4>Dataset Columns (${this.state.columns.length} total)</h4>
+        ${this.state.hideClassColumn ? '<span class="column-selector__mode">Clustering mode - no target column needed</span>' : ''}
         <button type="button" class="btn-reset" data-action="reset">Reset to Default</button>
       </div>
 
@@ -133,20 +169,15 @@ export class DatasetColumnSelector extends HTMLElement {
           </div>
         </div>
 
-        <div class="column-section">
-          <h5>Class Column</h5>
-          <p class="column-section__hint">Select the target/class column to predict</p>
-          <div class="column-list">
-            ${this.state.columns.map(col => this.renderClassRadio(col)).join("")}
-          </div>
-        </div>
+        ${classSection}
       </div>
     `;
   }
 
   private renderAttributeCheckbox(column: DatasetColumn): string {
     const isChecked = this.state.selectedAttributeIndices.has(column.index);
-    const isClass = this.state.selectedClassIndex === column.index;
+    // In clustering mode, no column is disabled as class
+    const isClass = !this.state.hideClassColumn && this.state.selectedClassIndex === column.index;
 
     return `
       <label class="column-item ${isClass ? 'column-item--disabled' : ''}">

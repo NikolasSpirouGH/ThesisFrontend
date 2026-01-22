@@ -273,6 +273,10 @@ export class PageTrainWeka extends HTMLElement {
       } else {
         this.refs.optionsConfigurator.setOptions([]);
       }
+
+      // Set clustering mode on column selector based on algorithm type
+      const isClustering = algorithm.type === "CLUSTERING";
+      this.refs.columnSelector.setClusteringMode(isClustering);
     } catch (error) {
       if (error instanceof UnauthorizedError) {
         return;

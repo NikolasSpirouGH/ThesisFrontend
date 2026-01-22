@@ -11,6 +11,7 @@ export type AlgorithmWeka = {
   id: number;
   name: string;
   description?: string;
+  type?: "CLASSIFICATION" | "REGRESSION" | "CLUSTERING";
   options?: AlgorithmWekaOption[];
   defaultOptionsString?: string;
 };
