@@ -143,6 +143,7 @@ export async function fetchTrainings(token?: string, params?: TrainingSearchPara
 
     const res = await fetch(url, { headers });
 
+    console.debug(`fetchTrainings: got response status ${res.status} from ${url}`);
     handleUnauthorized(res);
 
     if (!res.ok) {

@@ -28,6 +28,7 @@ type StoredUser = {
 export class PageEditProfile extends HTMLElement {
   private root!: ShadowRoot;
   private currentUser: StoredUser | null = null;
+  private abortController: AbortController | null = null;
 
   async connectedCallback() {
     this.root = this.shadowRoot ?? this.attachShadow({ mode: 'open' });
@@ -51,37 +52,57 @@ export class PageEditProfile extends HTMLElement {
     this.bind();
 
     // Then fetch fresh user data from backend in the background
+    // Create AbortController to cancel request if component is removed
+    this.abortController = new AbortController();
     try {
       const res = await fetch('/api/users/me', {
         headers: {
           'Authorization': `Bearer ${token}`
-        }
+        },
+        signal: this.abortController.signal
       });
 
       if (res.ok) {
         const response = await res.json();
         const freshUser = response.data;
 
-        // Only re-render if data changed
-        if (JSON.stringify(freshUser) !== JSON.stringify(this.currentUser)) {
+        // Only re-render if we got valid user data and it changed
+        if (freshUser && JSON.stringify(freshUser) !== JSON.stringify(this.currentUser)) {
           this.currentUser = freshUser;
           setUser(this.currentUser);
           this.render();
           this.bind();
         }
       } else if (res.status === 401) {
+        console.warn("Edit profile: Got 401, redirecting to login");
         window.location.hash = '#/login';
         return;
       }
       // Silently ignore other errors - cached data is fine
-    } catch (err) {
-      // Silently ignore network errors - cached data is fine
-      console.debug('Could not fetch fresh user profile, using cached data', err);
+    } catch (err: any) {
+      // Silently ignore network errors and aborted requests - cached data is fine
+      if (err.name !== 'AbortError') {
+        console.debug('Could not fetch fresh user profile, using cached data', err);
+      }
+    }
+  }
+
+  disconnectedCallback() {
+    // Cancel any pending requests when component is removed
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
     }
   }
 
   private render() {
-    const user = this.currentUser!;
+    // Safety check - should never happen but prevents crashes
+    if (!this.currentUser) {
+      console.error("render() called with no currentUser, redirecting to login");
+      window.location.hash = '#/login';
+      return;
+    }
+    const user = this.currentUser;
 
     this.root.innerHTML = `
       <style>${styles}</style>

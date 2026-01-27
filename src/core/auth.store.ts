@@ -14,6 +14,7 @@ export function setToken(token: string | null) {
 }
 
 export function clearAuth() {
+  console.trace("clearAuth() called - stack trace:");
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
 }

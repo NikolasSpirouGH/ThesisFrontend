@@ -16,6 +16,7 @@ export class NetworkError extends Error {
 
 export function handleUnauthorized(res: Response): void {
   if (res.status === 401) {
+    console.warn("401 Unauthorized response detected, URL:", res.url);
     clearAuth();
     window.location.hash = "#/login";
     throw new UnauthorizedError();
@@ -23,10 +24,16 @@ export function handleUnauthorized(res: Response): void {
 }
 
 export function handleNetworkError(error: any): void {
+  // Check if this is an AbortError (request was cancelled intentionally)
+  if (error.name === 'AbortError') {
+    console.debug("Request was cancelled");
+    throw error;
+  }
+
   if (isNetworkError(error)) {
-    console.warn("Network error detected, logging out user", error);
-    clearAuth();
-    window.location.hash = "#/login";
+    // Don't clear auth on network errors - only 401 responses should clear auth
+    // Network errors can happen due to temporary connectivity issues or request cancellations
+    console.warn("Network error detected", error);
     throw new NetworkError(error.message || "Network connection lost");
   }
   throw error;
