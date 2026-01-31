@@ -1,5 +1,5 @@
 import styles from "./styles/home.css?raw";
-import { clearAuth, getToken, getUser } from "../../core/auth.store";
+import { getToken, getUser } from "../../core/auth.store";
 
 type StoredUser = {
   firstName?: string;
@@ -10,13 +10,6 @@ type StoredUser = {
 };
 
 type Scope = "admin" | "manager" | "user";
-
-type CardSpec = {
-  title: string;
-  description: string;
-  route?: string;
-  featureKey?: string;
-};
 
 export class PageHome extends HTMLElement {
   private root!: ShadowRoot;
@@ -46,7 +39,6 @@ export class PageHome extends HTMLElement {
 
     if (token) {
       this.mount(this.dashboardView(user));
-      this.bindDashboard();
     } else {
       this.mount(this.guestView());
       this.bindGuest();
@@ -78,7 +70,6 @@ export class PageHome extends HTMLElement {
     const roles = this.resolveRoles(user);
     const roleLabel = roles.join(", ") || "USER";
     const scope = this.resolveScope(roles);
-    const cards = this.cardsForScope(scope);
     const { eyebrow, lead } = this.scopeCopy(scope);
     const headline = this.scopeHeadline(scope, name);
 
@@ -93,40 +84,9 @@ export class PageHome extends HTMLElement {
               <span class="chip">${status || "ACTIVE"}</span>
               <span class="chip chip--muted">${roleLabel}</span>
             </div>
-            <div class="hero__actions">
-              <div class="profile-dropdown">
-                <button class="btn ghost" type="button" data-toggle-profile>My Profile ▼</button>
-                <div class="dropdown-menu" data-profile-menu>
-                  <button class="dropdown-item" type="button" data-route="/profile/edit">Edit Profile</button>
-                  <button class="dropdown-item" type="button" data-route="/profile/change-password">Change Password</button>
-                  <button class="dropdown-item dropdown-item--danger" type="button" data-route="/profile/delete">Delete Account</button>
-                  <div class="dropdown-divider"></div>
-                  <button class="dropdown-item" type="button" data-action="logout">Logout</button>
-                </div>
-              </div>
-            </div>
           </div>
         </header>
-
-        <section class="grid">
-          ${cards.map((card) => this.cardTemplate(card)).join("")}
-        </section>
       </div>
-    `;
-  }
-
-  private cardTemplate({ title, description, route, featureKey }: CardSpec) {
-    const attr = route ? `data-route="${route}"` : `data-soon="${featureKey ?? title}"`;
-    const label = route ? "Open" : "Coming soon";
-
-    return `
-      <article class="card">
-        <h2>${title}</h2>
-        <p>${description}</p>
-        <div class="card__actions">
-          <button class="btn secondary" type="button" ${attr}>${label}</button>
-        </div>
-      </article>
     `;
   }
 
@@ -136,46 +96,6 @@ export class PageHome extends HTMLElement {
       if (!route) return;
       btn.addEventListener("click", () => this.go(route));
     });
-  }
-
-  private bindDashboard() {
-    this.root.querySelectorAll<HTMLElement>("[data-route]").forEach((el) => {
-      const route = el.dataset.route;
-      if (!route) return;
-      el.addEventListener("click", () => this.go(route));
-    });
-
-    this.root.querySelectorAll<HTMLElement>("[data-soon]").forEach((el) => {
-      const feature = el.dataset.soon ?? "This feature";
-      el.addEventListener("click", () => this.notifySoon(feature));
-    });
-
-    const logout = this.root.querySelector<HTMLButtonElement>("[data-action='logout']");
-    logout?.addEventListener("click", () => this.logout());
-
-    // Profile dropdown toggle
-    const profileToggle = this.root.querySelector<HTMLButtonElement>("[data-toggle-profile]");
-    const profileMenu = this.root.querySelector<HTMLElement>("[data-profile-menu]");
-
-    profileToggle?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      profileMenu?.classList.toggle("show");
-    });
-
-    // Close dropdown when clicking outside
-    document.addEventListener("click", () => {
-      profileMenu?.classList.remove("show");
-    });
-  }
-
-  private notifySoon(feature: string) {
-    const pretty = feature.charAt(0).toUpperCase() + feature.slice(1);
-    window.alert(`${pretty} is coming soon.`);
-  }
-
-  private logout() {
-    clearAuth();
-    this.go("/login");
   }
 
   private go(route: string) {
@@ -236,35 +156,6 @@ export class PageHome extends HTMLElement {
     }
 
     return "user";
-  }
-
-  private cardsForScope(scope: Scope): CardSpec[] {
-    const base: CardSpec[] = [
-      { title: "Trainings", description: "Monitor active runs and review past experiments.", route: "/trainings" },
-      { title: "Models", description: "Browse trained models and prepare deployments.", route: "/models" },
-      { title: "Executions", description: "Inspect model execution history and runtime metrics.", route: "/executions" },
-      { title: "Datasets", description: "Upload, manage and organize your training datasets.", route: "/datasets" },
-      { title: "Categories", description: "Organize models and datasets with hierarchical taxonomy.", route: "/categories" },
-      { title: "Algorithms", description: "Manage predefined and custom training algorithms.", route: "/algorithms" },
-    ];
-
-    if (scope === "admin") {
-      return [
-        ...base,
-        { title: "User Management", description: "View, manage, and moderate all registered users.", route: "/admin/users" },
-        { title: "Category Approval", description: "Review and approve category proposals from users.", route: "/admin/categories" },
-      ];
-    }
-
-    if (scope === "manager") {
-      return [
-        ...base,
-        { title: "Team activity", description: "See what your team is training and when results arrive.", featureKey: "team activity" },
-        { title: "Approvals", description: "Review dataset and model requests from collaborators.", featureKey: "approvals" },
-      ];
-    }
-
-    return base;
   }
 
   private scopeCopy(scope: Scope): { eyebrow: string; lead: string } {

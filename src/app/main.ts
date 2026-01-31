@@ -1,6 +1,7 @@
 // main.ts
 import { startHashRouter } from "./router";
 import { routes } from "./routes";
+import "../shared/navbar.component";
 import "../features/home/home.page";
 import "../features/trainings/training-weka.page";
 import "../features/trainings/training-custom.page";
@@ -24,9 +25,20 @@ import "../features/users/change-password.page";
 import "../features/users/delete-account.page";
 import "../features/admin/admin-users.page";
 import "../features/admin/admin-categories.page";
+import type { AppNavbar } from "../shared/navbar.component";
 
+const navbar = document.querySelector<AppNavbar>("app-navbar")!;
 const app = document.getElementById("app")!;
+
 startHashRouter(
-  Object.fromEntries(Object.entries(routes).map(([path, fn]) => [path, () => fn(app)])),
+  Object.fromEntries(
+    Object.entries(routes).map(([path, fn]) => [
+      path,
+      () => {
+        fn(app);
+        navbar.refresh();
+      },
+    ])
+  ),
   () => (app.innerHTML = `<h1>404</h1>`)
 );
