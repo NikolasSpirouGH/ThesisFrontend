@@ -1,7 +1,9 @@
 import { getToken } from "../../core/auth.store";
 import { UnauthorizedError } from "../../core/http";
+import { taskStore } from "../../core/task.store";
 import { deleteTraining, downloadTrainingModel, fetchTrainings, fetchUsedAlgorithms } from "./api";
 import type { TrainingItem, TrainingSearchParams } from "./api";
+import { stopTask } from "../tasks/api";
 import styles from "./styles/trainings.css?raw";
 
 type BusyAction = "delete" | "download";
@@ -31,6 +33,7 @@ class PageTrainings extends HTMLElement {
   private currentPage = 1;
   private itemsPerPage = 10;
   private pollTimer: number | null = null;
+  private storeUnsubscribe: (() => void) | null = null;
 
   connectedCallback() {
     this.root = this.shadowRoot ?? this.attachShadow({ mode: "open" });
@@ -38,10 +41,14 @@ class PageTrainings extends HTMLElement {
     void this.loadAlgorithms();
     void this.loadTrainings();
     this.startPolling();
+    this.storeUnsubscribe = taskStore.subscribe(() => this.renderActiveTasksPanel());
   }
 
   disconnectedCallback() {
     this.stopPolling();
+    if (this.storeUnsubscribe) {
+      this.storeUnsubscribe();
+    }
   }
 
   private render() {
@@ -59,6 +66,7 @@ class PageTrainings extends HTMLElement {
             <button class="btn ghost" type="button" data-action="refresh" ${this.loading ? "disabled" : ""}>${this.loading ? "Refreshing…" : "Refresh"}</button>
           </div>
         </header>
+        <section class="active-tasks-panel" data-active-tasks hidden></section>
         ${this.renderSearchPanel()}
         ${this.renderLauncher()}
         ${this.renderBody()}
@@ -66,6 +74,7 @@ class PageTrainings extends HTMLElement {
     `;
 
     this.bindEvents();
+    this.renderActiveTasksPanel();
   }
 
   private renderLauncher(): string {
@@ -631,6 +640,56 @@ class PageTrainings extends HTMLElement {
       .split(/[_\s]+/)
       .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
       .join(" ");
+  }
+
+  private renderActiveTasksPanel() {
+    const panel = this.root.querySelector<HTMLElement>('[data-active-tasks]');
+    if (!panel) return;
+
+    const wekaTrainings = taskStore.getActiveTasksByType('WEKA_TRAINING');
+    const customTrainings = taskStore.getActiveTasksByType('CUSTOM_TRAINING');
+    const wekaRetrains = taskStore.getActiveTasksByType('WEKA_RETRAIN');
+    const customRetrains = taskStore.getActiveTasksByType('CUSTOM_RETRAIN');
+    const activeTasks = [...wekaTrainings, ...customTrainings, ...wekaRetrains, ...customRetrains];
+
+    if (activeTasks.length === 0) {
+      panel.hidden = true;
+      return;
+    }
+
+    panel.hidden = false;
+    panel.innerHTML = `
+      <h3>🔄 Active Trainings (${activeTasks.length})</h3>
+      <ul class="active-tasks-list">
+        ${activeTasks.map(task => `
+          <li class="active-task-item" data-task-id="${task.taskId}">
+            <span class="active-task-status active-task-status--${task.status.toLowerCase()}">${task.status}</span>
+            <span class="active-task-type">${task.type === 'WEKA_TRAINING' ? 'Weka' : task.type === 'CUSTOM_TRAINING' ? 'Custom' : task.type === 'WEKA_RETRAIN' ? 'Weka Retrain' : 'Custom Retrain'}</span>
+            <span class="active-task-id">${task.taskId.substring(0, 8)}...</span>
+            <span class="active-task-desc">${task.description || 'Training'}</span>
+            <button type="button" class="btn small danger" data-stop-task="${task.taskId}">Stop</button>
+          </li>
+        `).join('')}
+      </ul>
+    `;
+
+    // Bind stop buttons
+    panel.querySelectorAll<HTMLButtonElement>('[data-stop-task]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const taskId = btn.dataset.stopTask;
+        if (!taskId) return;
+        try {
+          const token = getToken();
+          if (!token) return;
+          btn.disabled = true;
+          btn.textContent = 'Stopping...';
+          await stopTask(taskId, token);
+        } catch (err) {
+          console.error('Failed to stop task:', err);
+          alert('Failed to stop task');
+        }
+      });
+    });
   }
 }
 

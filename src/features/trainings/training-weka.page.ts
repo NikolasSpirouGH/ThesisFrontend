@@ -1,5 +1,6 @@
 import { getToken } from "../../core/auth.store";
 import { UnauthorizedError } from "../../core/http";
+import { taskStore } from "../../core/task.store";
 import { fetchAlgorithms, fetchAlgorithmWithOptions } from "../algorithms/api";
 import type { AlgorithmWeka } from "../algorithms/api";
 import { startTraining, parseDatasetColumns } from "./api";
@@ -74,15 +75,68 @@ export class PageTrainWeka extends HTMLElement {
   };
   private selectedFile: File | null = null;
   private pollTimer: number | null = null;
+  private pollTimers: Map<string, number> = new Map(); // Multiple polling timers
+  private storeUnsubscribe: (() => void) | null = null;
 
   connectedCallback() {
     this.root = this.shadowRoot ?? this.attachShadow({ mode: "open" });
     this.render();
     void this.loadAlgorithms();
+    this.restoreActiveTasks();
+
+    // Subscribe to task store changes
+    this.storeUnsubscribe = taskStore.subscribe(() => this.onTaskStoreChange());
   }
 
   disconnectedCallback() {
-    this.stopPolling();
+    // Unsubscribe from store
+    if (this.storeUnsubscribe) {
+      this.storeUnsubscribe();
+    }
+  }
+
+  private onTaskStoreChange() {
+    // Update active tasks panel when store changes
+    this.renderActiveTasksPanel();
+  }
+
+  private restoreActiveTasks() {
+    const activeTasks = taskStore.getActiveTasksByType('WEKA_TRAINING');
+
+    if (activeTasks.length > 0) {
+      // Resume polling for all active tasks
+      activeTasks.forEach(task => {
+        if (!this.pollTimers.has(task.taskId)) {
+          this.beginPollingForTask(task.taskId);
+        }
+      });
+
+      // Show the most recent one in the main UI
+      const mostRecent = activeTasks[activeTasks.length - 1];
+      this.state.taskId = mostRecent.taskId;
+      this.state.taskStatus = mostRecent.status;
+      this.showStatus(`Monitoring ${activeTasks.length} active training(s)...`, "info");
+      this.updateStopButton();
+      this.renderActiveTasksPanel();
+    }
+  }
+
+  private saveActiveTask(description?: string) {
+    if (this.state.taskId) {
+      taskStore.addTask({
+        taskId: this.state.taskId,
+        type: 'WEKA_TRAINING',
+        status: this.state.taskStatus || 'PENDING',
+        description: description || `Weka Training`
+      });
+    }
+  }
+
+  private clearActiveTask(taskId?: string) {
+    const id = taskId || this.state.taskId;
+    if (id) {
+      taskStore.removeTask(id);
+    }
   }
 
   private render() {
@@ -108,6 +162,8 @@ export class PageTrainWeka extends HTMLElement {
             <li>Optional numeric columns let you fine-tune inputs</li>
           </ul>
         </header>
+
+        <section class="active-tasks-panel" data-active-tasks hidden></section>
 
         <section class="panel">
           <form class="form" novalidate>
@@ -455,8 +511,15 @@ export class PageTrainWeka extends HTMLElement {
       const taskId = this.extractTaskId(response);
       this.state.taskId = taskId;
       this.state.taskStatus = "PENDING";
-      this.updateStopButton(); // Make sure stop button appears
+
+      // Save to task store with description
+      const algorithmName = this.state.selectedAlgorithm?.name || 'Weka Algorithm';
+      const fileName = this.selectedFile?.name || 'dataset';
+      this.saveActiveTask(`${algorithmName} on ${fileName}`);
+
+      this.updateStopButton();
       this.showStatus(`Training task ${taskId} started. Monitoring status…`, "info");
+      this.renderActiveTasksPanel();
 
       // Start polling after a small delay to allow backend to initialize the task
       setTimeout(() => {
@@ -492,51 +555,171 @@ export class PageTrainWeka extends HTMLElement {
   }
 
   private beginPolling(taskId: string) {
-    this.stopPolling();
-    this.pollTimer = window.setInterval(() => {
-      void this.pollTaskStatus(taskId);
-    }, 3000);
+    this.beginPollingForTask(taskId);
   }
 
-  private async pollTaskStatus(taskId: string) {
+  private beginPollingForTask(taskId: string) {
+    // Don't start duplicate polling
+    if (this.pollTimers.has(taskId)) return;
+
+    const timer = window.setInterval(() => {
+      void this.pollTaskStatusForTask(taskId);
+    }, 3000);
+
+    this.pollTimers.set(taskId, timer);
+  }
+
+  private stopPollingForTask(taskId: string) {
+    const timer = this.pollTimers.get(taskId);
+    if (timer) {
+      clearInterval(timer);
+      this.pollTimers.delete(taskId);
+    }
+  }
+
+  private async pollTaskStatusForTask(taskId: string) {
     try {
       const token = getToken() ?? undefined;
       const data = (await getTaskStatus(taskId, token)) as TaskStatusDTO;
       const status = data.status ?? "UNKNOWN";
-      this.state.taskStatus = status;
-      this.updateStopButton();
+
+      // Update store
+      taskStore.updateTaskStatus(taskId, status);
+
+      // Update local state if this is the currently displayed task
+      if (this.state.taskId === taskId) {
+        this.state.taskStatus = status;
+        this.updateStopButton();
+      }
 
       if (status === "COMPLETED") {
-        this.showStatus(`Training completed successfully. Check the Trainings page to review the run.`, "success");
-        this.stopPolling();
-        this.resetForm(false);
+        this.stopPollingForTask(taskId);
+        this.clearActiveTask(taskId);
+        if (this.state.taskId === taskId) {
+          this.showStatus(`Training completed successfully. Check the Trainings page to review the run.`, "success");
+          this.resetForm(false);
+        }
       } else if (status === "FAILED") {
         const extra = data.errorMessage ? ` Reason: ${data.errorMessage}` : "";
-        this.showStatus(`Training failed.${extra}`, "error");
-        this.stopPolling();
+        this.stopPollingForTask(taskId);
+        this.clearActiveTask(taskId);
+        if (this.state.taskId === taskId) {
+          this.showStatus(`Training failed.${extra}`, "error");
+        }
       } else if (status === "STOPPED") {
-        this.showStatus("Training was stopped by the user.", "warning");
-        this.stopPolling();
-        this.state.taskId = null;
-        this.state.taskStatus = null;
-        this.updateStopButton();
+        this.stopPollingForTask(taskId);
+        this.clearActiveTask(taskId);
+        if (this.state.taskId === taskId) {
+          this.showStatus("Training was stopped by the user.", "warning");
+          this.state.taskId = null;
+          this.state.taskStatus = null;
+          this.updateStopButton();
+        }
       } else {
-        this.showStatus(`Training task ${taskId} is ${status.toLowerCase()}.`, "info");
+        if (this.state.taskId === taskId) {
+          this.showStatus(`Training task ${taskId} is ${status.toLowerCase()}.`, "info");
+        }
       }
+
+      // Update active tasks panel
+      this.renderActiveTasksPanel();
+
     } catch (error) {
       if (error instanceof UnauthorizedError) {
         return;
       }
       const message = error instanceof Error ? error.message : "Cannot fetch training status";
-      this.showStatus(`Unable to check task status: ${message}`, "warning");
-      this.stopPolling();
+      if (this.state.taskId === taskId) {
+        this.showStatus(`Unable to check task status: ${message}`, "warning");
+      }
+      this.stopPollingForTask(taskId);
     }
   }
 
   private stopPolling() {
+    // Stop all polling timers
+    this.pollTimers.forEach((timer) => {
+      clearInterval(timer);
+    });
+    this.pollTimers.clear();
+
+    // Legacy single timer
     if (this.pollTimer !== null) {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
+    }
+  }
+
+  private renderActiveTasksPanel() {
+    const panel = this.root.querySelector<HTMLElement>('[data-active-tasks]');
+    if (!panel) return;
+
+    const activeTasks = taskStore.getActiveTasksByType('WEKA_TRAINING');
+
+    if (activeTasks.length === 0) {
+      panel.hidden = true;
+      return;
+    }
+
+    panel.hidden = false;
+    panel.innerHTML = `
+      <h3>Active Trainings (${activeTasks.length})</h3>
+      <ul class="active-tasks-list">
+        ${activeTasks.map(task => `
+          <li class="active-task-item ${this.state.taskId === task.taskId ? 'active-task-item--current' : ''}"
+              data-task-id="${task.taskId}">
+            <span class="active-task-status active-task-status--${task.status.toLowerCase()}">${task.status}</span>
+            <span class="active-task-id">${task.taskId.substring(0, 8)}...</span>
+            <span class="active-task-desc">${task.description || 'Weka Training'}</span>
+            <button type="button" class="btn small ghost" data-action="view-task" data-task-id="${task.taskId}">View</button>
+            <button type="button" class="btn small danger" data-action="stop-task" data-task-id="${task.taskId}">Stop</button>
+          </li>
+        `).join('')}
+      </ul>
+    `;
+
+    // Bind events for the new buttons
+    panel.querySelectorAll('[data-action="view-task"]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const taskId = (e.target as HTMLElement).dataset.taskId;
+        if (taskId) this.switchToTask(taskId);
+      });
+    });
+
+    panel.querySelectorAll('[data-action="stop-task"]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const taskId = (e.target as HTMLElement).dataset.taskId;
+        if (taskId) void this.handleStopTask(taskId);
+      });
+    });
+  }
+
+  private switchToTask(taskId: string) {
+    const task = taskStore.getTask(taskId);
+    if (task) {
+      this.state.taskId = taskId;
+      this.state.taskStatus = task.status;
+      this.showStatus(`Viewing task ${taskId} - Status: ${task.status}`, "info");
+      this.updateStopButton();
+      this.renderActiveTasksPanel();
+    }
+  }
+
+  private async handleStopTask(taskId: string) {
+    try {
+      const token = getToken();
+      if (!token) {
+        throw new UnauthorizedError();
+      }
+
+      this.showStatus(`Stopping task ${taskId}...`, "warning");
+      await stopTask(taskId, token);
+      this.showStatus("Stop request sent successfully.", "info");
+
+    } catch (error) {
+      console.error('Failed to stop training:', error);
+      const message = error instanceof Error ? error.message : "Failed to stop training";
+      this.showStatus(`Failed to stop training: ${message}`, "error");
     }
   }
 

@@ -1,5 +1,6 @@
 import { getToken } from "../../core/auth.store";
 import { UnauthorizedError } from "../../core/http";
+import { taskStore } from "../../core/task.store";
 import { getModels, startExecution } from "./api";
 import type { RetrainModelOptionDTO } from "./api";
 import { getTaskStatus, stopTask } from "../tasks/api";
@@ -55,15 +56,60 @@ export class PageExecution extends HTMLElement {
   };
   private selectedFile: File | null = null;
   private pollTimer: number | null = null;
+  private pollTimers: Map<string, number> = new Map();
+  private storeUnsubscribe: (() => void) | null = null;
 
   connectedCallback() {
     this.root = this.shadowRoot ?? this.attachShadow({ mode: "open" });
     this.render();
     void this.loadModels();
+    this.restoreActiveTasks();
+    this.storeUnsubscribe = taskStore.subscribe(() => this.onTaskStoreChange());
   }
 
   disconnectedCallback() {
-    this.stopPolling();
+    if (this.storeUnsubscribe) {
+      this.storeUnsubscribe();
+    }
+  }
+
+  private onTaskStoreChange() {
+    this.renderActiveTasksPanel();
+  }
+
+  private restoreActiveTasks() {
+    const activeTasks = taskStore.getActiveTasksByType('PREDICTION');
+    if (activeTasks.length > 0) {
+      activeTasks.forEach(task => {
+        if (!this.pollTimers.has(task.taskId)) {
+          this.beginPollingForTask(task.taskId);
+        }
+      });
+      const mostRecent = activeTasks[activeTasks.length - 1];
+      this.state.taskId = mostRecent.taskId;
+      this.state.taskStatus = mostRecent.status;
+      this.showStatus(`Monitoring ${activeTasks.length} active prediction(s)...`, "info");
+      this.updateStopButton();
+      this.renderActiveTasksPanel();
+    }
+  }
+
+  private saveActiveTask(description?: string) {
+    if (this.state.taskId) {
+      taskStore.addTask({
+        taskId: this.state.taskId,
+        type: 'PREDICTION',
+        status: this.state.taskStatus || 'PENDING',
+        description: description || 'Prediction'
+      });
+    }
+  }
+
+  private clearActiveTask(taskId?: string) {
+    const id = taskId || this.state.taskId;
+    if (id) {
+      taskStore.removeTask(id);
+    }
   }
 
   private render() {
@@ -90,6 +136,8 @@ export class PageExecution extends HTMLElement {
             <li>Download prediction results as CSV</li>
           </ul>
         </header>
+
+        <section class="active-tasks-panel" data-active-tasks hidden></section>
 
         <section class="panel">
           <form class="form" novalidate>
@@ -373,8 +421,16 @@ export class PageExecution extends HTMLElement {
       const taskId = this.extractTaskId(response);
       this.state.taskId = taskId;
       this.state.taskStatus = "PENDING";
-      this.updateStopButton(); // Make sure stop button appears
+
+      // Save to task store with description
+      const model = this.state.models.find(m => m.modelId.toString() === modelId);
+      const modelName = model?.modelName || 'Model';
+      const fileName = this.selectedFile?.name || 'data';
+      this.saveActiveTask(`${modelName} on ${fileName}`);
+
+      this.updateStopButton();
       this.showStatus(`Execution task ${taskId} started. Monitoring status…`, "info");
+      this.renderActiveTasksPanel();
 
       // Start polling after a small delay to allow backend to initialize the task
       setTimeout(() => {
@@ -410,51 +466,153 @@ export class PageExecution extends HTMLElement {
   }
 
   private beginPolling(taskId: string) {
-    this.stopPolling();
-    this.pollTimer = window.setInterval(() => {
-      void this.pollTaskStatus(taskId);
-    }, 3000);
+    this.beginPollingForTask(taskId);
   }
 
-  private async pollTaskStatus(taskId: string) {
+  private beginPollingForTask(taskId: string) {
+    if (this.pollTimers.has(taskId)) return;
+
+    const timer = window.setInterval(() => {
+      void this.pollTaskStatusForTask(taskId);
+    }, 3000);
+
+    this.pollTimers.set(taskId, timer);
+  }
+
+  private stopPollingForTask(taskId: string) {
+    const timer = this.pollTimers.get(taskId);
+    if (timer) {
+      clearInterval(timer);
+      this.pollTimers.delete(taskId);
+    }
+  }
+
+  private async pollTaskStatusForTask(taskId: string) {
     try {
       const token = getToken() ?? undefined;
       const data = (await getTaskStatus(taskId, token)) as TaskStatusDTO;
       const status = data.status ?? "UNKNOWN";
-      this.state.taskStatus = status;
-      this.updateStopButton();
+
+      taskStore.updateTaskStatus(taskId, status);
+
+      if (this.state.taskId === taskId) {
+        this.state.taskStatus = status;
+        this.updateStopButton();
+      }
 
       if (status === "COMPLETED") {
-        this.showStatus(`Execution completed successfully. Check the Executions page to download the results.`, "success");
-        this.stopPolling();
-        this.resetForm(false);
+        this.stopPollingForTask(taskId);
+        this.clearActiveTask(taskId);
+        if (this.state.taskId === taskId) {
+          this.showStatus(`Execution completed successfully. Check the Executions page to download the results.`, "success");
+          this.resetForm(false);
+        }
       } else if (status === "FAILED") {
         const extra = data.errorMessage ? ` Reason: ${data.errorMessage}` : "";
-        this.showStatus(`Execution failed.${extra}`, "error");
-        this.stopPolling();
+        this.stopPollingForTask(taskId);
+        this.clearActiveTask(taskId);
+        if (this.state.taskId === taskId) {
+          this.showStatus(`Execution failed.${extra}`, "error");
+        }
       } else if (status === "STOPPED") {
-        this.showStatus("Execution was stopped by the user.", "warning");
-        this.stopPolling();
-        this.state.taskId = null;
-        this.state.taskStatus = null;
-        this.updateStopButton();
+        this.stopPollingForTask(taskId);
+        this.clearActiveTask(taskId);
+        if (this.state.taskId === taskId) {
+          this.showStatus("Execution was stopped by the user.", "warning");
+          this.state.taskId = null;
+          this.state.taskStatus = null;
+          this.updateStopButton();
+        }
       } else {
-        this.showStatus(`Execution task ${taskId} is ${status.toLowerCase()}.`, "info");
+        if (this.state.taskId === taskId) {
+          this.showStatus(`Execution task ${taskId} is ${status.toLowerCase()}.`, "info");
+        }
       }
+      this.renderActiveTasksPanel();
     } catch (error) {
       if (error instanceof UnauthorizedError) {
         return;
       }
       const message = error instanceof Error ? error.message : "Cannot fetch execution status";
-      this.showStatus(`Unable to check task status: ${message}`, "warning");
-      this.stopPolling();
+      if (this.state.taskId === taskId) {
+        this.showStatus(`Unable to check task status: ${message}`, "warning");
+      }
+      this.stopPollingForTask(taskId);
     }
   }
 
   private stopPolling() {
+    this.pollTimers.forEach((timer) => clearInterval(timer));
+    this.pollTimers.clear();
     if (this.pollTimer !== null) {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
+    }
+  }
+
+  private renderActiveTasksPanel() {
+    const panel = this.root.querySelector<HTMLElement>('[data-active-tasks]');
+    if (!panel) return;
+
+    const activeTasks = taskStore.getActiveTasksByType('PREDICTION');
+    if (activeTasks.length === 0) {
+      panel.hidden = true;
+      return;
+    }
+
+    panel.hidden = false;
+    panel.innerHTML = `
+      <h3>Active Predictions (${activeTasks.length})</h3>
+      <ul class="active-tasks-list">
+        ${activeTasks.map(task => `
+          <li class="active-task-item ${this.state.taskId === task.taskId ? 'active-task-item--current' : ''}"
+              data-task-id="${task.taskId}">
+            <span class="active-task-status active-task-status--${task.status.toLowerCase()}">${task.status}</span>
+            <span class="active-task-id">${task.taskId.substring(0, 8)}...</span>
+            <span class="active-task-desc">${task.description || 'Prediction'}</span>
+            <button type="button" class="btn small ghost" data-action="view-task" data-task-id="${task.taskId}">View</button>
+            <button type="button" class="btn small danger" data-action="stop-task" data-task-id="${task.taskId}">Stop</button>
+          </li>
+        `).join('')}
+      </ul>
+    `;
+
+    panel.querySelectorAll('[data-action="view-task"]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const taskId = (e.target as HTMLElement).dataset.taskId;
+        if (taskId) this.switchToTask(taskId);
+      });
+    });
+
+    panel.querySelectorAll('[data-action="stop-task"]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const taskId = (e.target as HTMLElement).dataset.taskId;
+        if (taskId) void this.handleStopTask(taskId);
+      });
+    });
+  }
+
+  private switchToTask(taskId: string) {
+    const task = taskStore.getTask(taskId);
+    if (task) {
+      this.state.taskId = taskId;
+      this.state.taskStatus = task.status;
+      this.showStatus(`Viewing task ${taskId} - Status: ${task.status}`, "info");
+      this.updateStopButton();
+      this.renderActiveTasksPanel();
+    }
+  }
+
+  private async handleStopTask(taskId: string) {
+    try {
+      const token = getToken();
+      if (!token) throw new UnauthorizedError();
+      this.showStatus(`Stopping task ${taskId}...`, "warning");
+      await stopTask(taskId, token);
+      this.showStatus("Stop request sent successfully.", "info");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to stop execution";
+      this.showStatus(`Failed to stop: ${message}`, "error");
     }
   }
 
