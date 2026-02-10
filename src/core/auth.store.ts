@@ -41,3 +41,8 @@ export function getUser<T = unknown>(): T | null {
     return raw as unknown as T;
   }
 }
+
+export function getCurrentUsername(): string | null {
+  const user = getUser<{ username?: string }>();
+  return user?.username ?? null;
+}

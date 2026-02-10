@@ -25,6 +25,7 @@ class PageDatasets extends HTMLElement {
   };
   private currentPage = 1;
   private itemsPerPage = 10;
+  private filterType: "ALL" | "TRAIN" | "PREDICT" = "ALL";
 
   connectedCallback() {
     this.root = this.shadowRoot ?? this.attachShadow({ mode: "open" });
@@ -32,14 +33,21 @@ class PageDatasets extends HTMLElement {
     void this.loadDatasets();
   }
 
+  private get filteredDatasets(): DatasetDTO[] {
+    if (this.filterType === "ALL") {
+      return this.datasets;
+    }
+    return this.datasets.filter(d => d.functionalType === this.filterType);
+  }
+
   private get paginatedDatasets(): DatasetDTO[] {
     const start = (this.currentPage - 1) * this.itemsPerPage;
     const end = start + this.itemsPerPage;
-    return this.datasets.slice(start, end);
+    return this.filteredDatasets.slice(start, end);
   }
 
   private get totalPages(): number {
-    return Math.ceil(this.datasets.length / this.itemsPerPage);
+    return Math.ceil(this.filteredDatasets.length / this.itemsPerPage);
   }
 
   private render() {
@@ -52,6 +60,11 @@ class PageDatasets extends HTMLElement {
             <p>Upload, manage, and organize your training datasets. Track usage across models and share with your team.</p>
           </div>
           <div class="hero__actions">
+            <select class="filter-select" data-action="filter-type">
+              <option value="ALL" ${this.filterType === "ALL" ? "selected" : ""}>All Types</option>
+              <option value="TRAIN" ${this.filterType === "TRAIN" ? "selected" : ""}>Training</option>
+              <option value="PREDICT" ${this.filterType === "PREDICT" ? "selected" : ""}>Prediction</option>
+            </select>
             <button class="btn primary" type="button" data-action="upload">Upload Dataset</button>
             <button class="btn ghost" type="button" data-action="refresh" ${this.loading ? "disabled" : ""}>${this.loading ? "Refreshing…" : "Refresh"}</button>
           </div>
@@ -117,8 +130,7 @@ class PageDatasets extends HTMLElement {
                 required
               >
                 <option value="TRAIN" ${this.uploadFormData.functionalType === "TRAIN" ? "selected" : ""}>Training</option>
-                <option value="TEST" ${this.uploadFormData.functionalType === "TEST" ? "selected" : ""}>Testing</option>
-                <option value="VALIDATION" ${this.uploadFormData.functionalType === "VALIDATION" ? "selected" : ""}>Validation</option>
+                <option value="PREDICT" ${this.uploadFormData.functionalType === "PREDICT" ? "selected" : ""}>Prediction</option>
               </select>
             </div>
             <div class="form-actions">
@@ -189,7 +201,8 @@ class PageDatasets extends HTMLElement {
               <tr>
                 <th>Filename</th>
                 <th>Size</th>
-                <th>Type</th>
+                <th>Format</th>
+                <th>Purpose</th>
                 <th>Status</th>
                 <th>Owner</th>
                 <th>Uploaded</th>
@@ -226,6 +239,9 @@ class PageDatasets extends HTMLElement {
         </td>
         <td>${this.formatFileSize(dataset.fileSize)}</td>
         <td class="content-type">${dataset.contentType}</td>
+        <td>
+          <span class="purpose purpose--${dataset.functionalType?.toLowerCase() || 'unknown'}">${this.formatFunctionalType(dataset.functionalType)}</span>
+        </td>
         <td>
           <span class="status status--${this.statusModifier(dataset.status)}">${dataset.status}</span>
         </td>
@@ -277,6 +293,14 @@ class PageDatasets extends HTMLElement {
       this.render();
     });
 
+    // Filter by functional type
+    this.root.querySelector<HTMLSelectElement>("[data-action='filter-type']")?.addEventListener("change", (e) => {
+      const value = (e.target as HTMLSelectElement).value as "ALL" | "TRAIN" | "PREDICT";
+      this.filterType = value;
+      this.currentPage = 1; // Reset to first page when filtering
+      this.render();
+    });
+
     this.root.querySelectorAll<HTMLButtonElement>("[data-action='refresh']").forEach((btn) => {
       btn.addEventListener("click", () => {
         void this.loadDatasets(true);
@@ -297,7 +321,7 @@ class PageDatasets extends HTMLElement {
       const file = formData.get("file") as File;
       const description = formData.get("description") as string;
       const accessibility = formData.get("accessibility") as "PUBLIC" | "PRIVATE" | "SHARED";
-      const functionalType = formData.get("functionalType") as "TRAIN" | "TEST" | "VALIDATION";
+      const functionalType = formData.get("functionalType") as "TRAIN" | "PREDICT";
 
       if (file) {
         void this.handleUpload({
@@ -490,6 +514,12 @@ class PageDatasets extends HTMLElement {
     const sizes = ["Bytes", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
+  }
+
+  private formatFunctionalType(type: "TRAIN" | "PREDICT" | null): string {
+    if (type === "TRAIN") return "Training";
+    if (type === "PREDICT") return "Prediction";
+    return "—";
   }
 
   private formatDate(value: string | null): string {

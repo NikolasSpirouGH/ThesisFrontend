@@ -189,6 +189,52 @@ tbody tr:hover {
   color: rgba(226, 232, 240, 0.92);
 }
 
+/* Purpose badges */
+.purpose {
+  display: inline-block;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.purpose--train {
+  background: rgba(96, 165, 250, 0.2);
+  color: #93c5fd;
+}
+
+.purpose--predict {
+  background: rgba(168, 85, 247, 0.2);
+  color: #c4b5fd;
+}
+
+.purpose--unknown {
+  background: rgba(148, 163, 184, 0.2);
+  color: rgba(226, 232, 240, 0.72);
+}
+
+/* Filter select */
+.filter-select {
+  height: 40px;
+  padding: 0 1rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.85);
+  color: inherit;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: rgba(96, 165, 250, 0.8);
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.18);
+}
+
 /* Actions Dropdown */
 .actions-dropdown {
   position: relative;

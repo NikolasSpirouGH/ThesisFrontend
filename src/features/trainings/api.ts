@@ -309,7 +309,8 @@ export async function fetchRetrainModelDetails(modelId: number, token?: string):
 
 export type CustomTrainingRequest = {
   algorithmId: number;
-  datasetFile: File;
+  datasetFile?: File;          // Either datasetFile or datasetId required
+  datasetId?: number;          // ID of existing dataset
   parametersFile?: File;
   basicAttributesColumns?: string;
   targetColumn?: string;
@@ -319,7 +320,13 @@ export async function startCustomTraining(request: CustomTrainingRequest, token?
   try {
     const formData = new FormData();
     formData.append("algorithmId", request.algorithmId.toString());
-    formData.append("datasetFile", request.datasetFile);
+
+    // Add either datasetFile or datasetId
+    if (request.datasetFile) {
+      formData.append("datasetFile", request.datasetFile);
+    } else if (request.datasetId) {
+      formData.append("datasetId", request.datasetId.toString());
+    }
 
     if (request.parametersFile) {
       formData.append("parametersFile", request.parametersFile);
@@ -386,6 +393,7 @@ export type CustomRetrainRequest = {
   trainingId?: number;
   modelId?: number;
   datasetFile?: File;
+  datasetId?: number;          // ID of existing dataset (alternative to datasetFile)
   parametersFile?: File;
   basicAttributesColumns?: string;
   targetColumn?: string;
@@ -403,6 +411,9 @@ export async function startCustomRetrain(request: CustomRetrainRequest, token?: 
     }
     if (request.datasetFile) {
       formData.append("datasetFile", request.datasetFile);
+    }
+    if (request.datasetId) {
+      formData.append("datasetId", request.datasetId.toString());
     }
     if (request.parametersFile) {
       formData.append("parametersFile", request.parametersFile);

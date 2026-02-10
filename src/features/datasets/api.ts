@@ -9,6 +9,7 @@ export type DatasetDTO = {
   contentType: string;
   uploadDate: string;
   status: "PUBLIC" | "PRIVATE" | "SHARED";
+  functionalType: "TRAIN" | "PREDICT" | null;
   description: string | null;
   ownerUsername: string;
   completeTrainingCount: number;
@@ -22,7 +23,7 @@ export type DatasetUploadRequest = {
   accessibility: "PUBLIC" | "PRIVATE" | "SHARED";
   description?: string;
   categoryId?: number;
-  functionalType?: "TRAIN" | "TEST" | "VALIDATION";
+  functionalType?: "TRAIN" | "PREDICT";
 };
 
 export type DatasetSearchRequest = {
@@ -272,6 +273,47 @@ export async function getDatasetInfo(datasetId: number, token?: string): Promise
 
     const response = await res.json();
     return response.dataHeader || response.data;
+  } catch (error) {
+    handleNetworkError(error);
+    throw error;
+  }
+}
+
+export type DatasetColumnDTO = {
+  index: number;
+  name: string;
+  type: string;
+  distinctValues?: number;
+};
+
+export type DatasetColumnsResponse = {
+  columns: DatasetColumnDTO[];
+  totalRows: number;
+  totalColumns: number;
+};
+
+/**
+ * Fetch columns information for an existing dataset.
+ */
+export async function fetchDatasetColumns(datasetId: number, token?: string): Promise<DatasetColumnsResponse> {
+  try {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      ...authHeader(token)
+    };
+
+    const res = await fetch(`/api/datasets/${datasetId}/columns`, {
+      headers
+    });
+
+    handleUnauthorized(res);
+
+    if (!res.ok) {
+      const message = await normaliseError(res, "Failed to load dataset columns");
+      throw new Error(`${res.status}: ${message}`);
+    }
+
+    return res.json();
   } catch (error) {
     handleNetworkError(error);
     throw error;

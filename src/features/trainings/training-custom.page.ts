@@ -1,4 +1,4 @@
-import { getToken } from "../../core/auth.store";
+import { getToken, getCurrentUsername } from "../../core/auth.store";
 import { UnauthorizedError } from "../../core/http";
 import { taskStore } from "../../core/task.store";
 import { fetchCustomAlgorithms } from "../algorithms/api";
@@ -6,11 +6,15 @@ import type { CustomAlgorithm } from "../algorithms/api";
 import { startCustomTraining, parseDatasetColumns } from "./api";
 import type { CustomTrainingRequest } from "./api";
 import { getTaskStatus, stopTask } from "../tasks/api";
+import { fetchDatasets, fetchDatasetColumns } from "../datasets/api";
+import type { DatasetDTO } from "../datasets/api";
 import styles from "./styles/training-custom.css?raw";
 import "./components/dataset-column-selector";
 import type { DatasetColumnSelector } from "./components/dataset-column-selector";
 
 type StatusTone = "info" | "success" | "error" | "warning";
+
+type DatasetMode = "upload" | "existing";
 
 type ComponentState = {
   algorithms: CustomAlgorithm[];
@@ -25,6 +29,11 @@ type ComponentState = {
   taskStatus: string | null;
   statusMessage: string | null;
   statusTone: StatusTone | null;
+  // Dataset mode state
+  datasetMode: DatasetMode;
+  existingDatasets: DatasetDTO[];
+  datasetsLoading: boolean;
+  selectedDatasetId: number | null;
 };
 
 type Refs = {
@@ -45,6 +54,12 @@ type Refs = {
   resetButton: HTMLButtonElement;
   stopButton: HTMLButtonElement;
   statusBanner: HTMLElement;
+  // Dataset mode refs
+  datasetModeUpload: HTMLInputElement;
+  datasetModeExisting: HTMLInputElement;
+  uploadSection: HTMLElement;
+  existingSection: HTMLElement;
+  datasetSelect: HTMLSelectElement;
 };
 
 type TaskStatusDTO = {
@@ -68,7 +83,12 @@ export class PageTrainCustom extends HTMLElement {
     taskId: null,
     taskStatus: null,
     statusMessage: null,
-    statusTone: null
+    statusTone: null,
+    // Dataset mode state
+    datasetMode: "upload",
+    existingDatasets: [],
+    datasetsLoading: false,
+    selectedDatasetId: null
   };
   private selectedDatasetFile: File | null = null;
   private selectedParametersFile: File | null = null;
@@ -168,21 +188,42 @@ export class PageTrainCustom extends HTMLElement {
             <small>Select from your own algorithms or public algorithms from other users.</small>
           </div>
 
-          <!-- Dataset File Upload -->
+          <!-- Dataset Selection -->
           <div class="field">
             <span>Training Dataset *</span>
-            <div class="dropzone" data-ref="dropzoneDataset">
-              <div class="dropzone__content">
-                <h3 class="dropzone__title">📄 Drop your dataset file here</h3>
-                <p class="dropzone__hint">or <button type="button" class="link-btn" data-ref="chooseDatasetBtn">browse files</button></p>
-                <p class="dropzone__hint">CSV, ARFF, or XLSX formats</p>
-              </div>
-              <div class="dropzone__selected" style="display: none;">
-                <p>Selected: <span data-ref="datasetFileName">filename.csv</span></p>
-                <button type="button" class="btn small ghost" data-ref="clearDatasetBtn">Remove</button>
-              </div>
+            <div class="dataset-mode-toggle">
+              <label class="dataset-mode-option">
+                <input type="radio" name="datasetMode" value="upload" checked data-ref="datasetModeUpload" />
+                <span>Upload new file</span>
+              </label>
+              <label class="dataset-mode-option">
+                <input type="radio" name="datasetMode" value="existing" data-ref="datasetModeExisting" />
+                <span>Select existing dataset</span>
+              </label>
             </div>
-            <input type="file" style="position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;" data-ref="datasetInput" accept=".csv,.arff,.xlsx" required>
+
+            <!-- Upload section -->
+            <div data-ref="uploadSection">
+              <div class="dropzone" data-ref="dropzoneDataset">
+                <div class="dropzone__content">
+                  <h3 class="dropzone__title">📄 Drop your dataset file here</h3>
+                  <p class="dropzone__hint">or <button type="button" class="link-btn" data-ref="chooseDatasetBtn">browse files</button></p>
+                  <p class="dropzone__hint">CSV, ARFF, or XLSX formats</p>
+                </div>
+                <div class="dropzone__selected" style="display: none;">
+                  <p>Selected: <span data-ref="datasetFileName">filename.csv</span></p>
+                  <button type="button" class="btn small ghost" data-ref="clearDatasetBtn">Remove</button>
+                </div>
+              </div>
+              <input type="file" style="position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;" data-ref="datasetInput" accept=".csv,.arff,.xlsx" required>
+            </div>
+
+            <!-- Existing dataset section -->
+            <div data-ref="existingSection" hidden>
+              <select data-ref="datasetSelect" class="dataset-select">
+                <option value="">Select a dataset...</option>
+              </select>
+            </div>
           </div>
 
           <!-- Parameters File Upload (Optional) -->
@@ -244,7 +285,13 @@ export class PageTrainCustom extends HTMLElement {
       submitButton: query("submitButton"),
       resetButton: query("resetButton"),
       stopButton: query("stopButton"),
-      statusBanner: query("statusBanner")
+      statusBanner: query("statusBanner"),
+      // Dataset mode refs
+      datasetModeUpload: query("datasetModeUpload"),
+      datasetModeExisting: query("datasetModeExisting"),
+      uploadSection: query("uploadSection"),
+      existingSection: query("existingSection"),
+      datasetSelect: query("datasetSelect")
     };
   }
 
@@ -262,6 +309,21 @@ export class PageTrainCustom extends HTMLElement {
     this.refs.chooseParamsBtn.addEventListener("click", () => this.refs.parametersInput.click());
     this.refs.clearDatasetBtn.addEventListener("click", () => this.clearDatasetFile());
     this.refs.clearParamsBtn.addEventListener("click", () => this.clearParametersFile());
+
+    // Dataset mode toggle handlers
+    this.refs.datasetModeUpload.addEventListener("change", () => this.handleDatasetModeChange("upload"));
+    this.refs.datasetModeExisting.addEventListener("change", () => this.handleDatasetModeChange("existing"));
+
+    // Existing dataset select handler
+    this.refs.datasetSelect.addEventListener("change", (event) => {
+      const value = (event.target as HTMLSelectElement).value;
+      if (value) {
+        void this.handleDatasetSelect(parseInt(value));
+      } else {
+        this.state.selectedDatasetId = null;
+        this.refs.columnSelector.setColumns([]);
+      }
+    });
 
     // Form events
     this.refs.form.addEventListener("submit", (e) => this.handleSubmit(e));
@@ -341,6 +403,112 @@ export class PageTrainCustom extends HTMLElement {
       const message = error instanceof Error ? error.message : "Failed to parse dataset columns";
       this.showStatusBanner(message, "warning");
       this.refs.columnSelector.setColumns([]);
+    } finally {
+      this.state.columnsLoading = false;
+    }
+  }
+
+  private handleDatasetModeChange(mode: DatasetMode) {
+    this.state.datasetMode = mode;
+    this.state.selectedDatasetId = null;
+    this.refs.columnSelector.setColumns([]);
+
+    if (mode === "upload") {
+      this.refs.uploadSection.hidden = false;
+      this.refs.existingSection.hidden = true;
+    } else {
+      this.refs.uploadSection.hidden = true;
+      this.refs.existingSection.hidden = false;
+      void this.loadExistingDatasets();
+    }
+  }
+
+  private async loadExistingDatasets() {
+    this.state.datasetsLoading = true;
+    this.refs.datasetSelect.innerHTML = '<option value="">Loading datasets...</option>';
+    this.refs.datasetSelect.disabled = true;
+
+    try {
+      const token = getToken() ?? undefined;
+      const datasets = await fetchDatasets(token);
+      this.state.existingDatasets = datasets;
+      this.populateDatasetSelect();
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Failed to load datasets";
+      this.showStatusBanner(message, "error");
+      this.refs.datasetSelect.innerHTML = '<option value="">Failed to load datasets</option>';
+    } finally {
+      this.state.datasetsLoading = false;
+      this.refs.datasetSelect.disabled = false;
+    }
+  }
+
+  private populateDatasetSelect() {
+    const select = this.refs.datasetSelect;
+    const currentUsername = getCurrentUsername();
+
+    // My datasets = owned by me (regardless of accessibility)
+    const myDatasets = this.state.existingDatasets.filter(d => d.ownerUsername === currentUsername);
+    // Public datasets = NOT owned by me AND status is PUBLIC
+    const publicDatasets = this.state.existingDatasets.filter(d => d.ownerUsername !== currentUsername && d.status === "PUBLIC");
+
+    let optionsHtml = '<option value="">Select a dataset...</option>';
+
+    if (myDatasets.length > 0) {
+      optionsHtml += '<optgroup label="Your Datasets">';
+      optionsHtml += myDatasets.map(d =>
+        `<option value="${d.id}">${this.escapeHtml(d.originalFileName)}</option>`
+      ).join("");
+      optionsHtml += '</optgroup>';
+    }
+
+    if (publicDatasets.length > 0) {
+      optionsHtml += '<optgroup label="Public Datasets">';
+      optionsHtml += publicDatasets.map(d =>
+        `<option value="${d.id}">${this.escapeHtml(d.originalFileName)} (${this.escapeHtml(d.ownerUsername)})</option>`
+      ).join("");
+      optionsHtml += '</optgroup>';
+    }
+
+    select.innerHTML = optionsHtml;
+  }
+
+  private escapeHtml(value: string): string {
+    return value.replace(/[&<>\"']/g, (char) => {
+      switch (char) {
+        case "&": return "&amp;";
+        case "<": return "&lt;";
+        case ">": return "&gt;";
+        case '"': return "&quot;";
+        case "'": return "&#39;";
+        default: return char;
+      }
+    });
+  }
+
+  private async handleDatasetSelect(datasetId: number) {
+    this.state.selectedDatasetId = datasetId;
+    this.state.columnsLoading = true;
+    this.refs.columnSelector.setColumns([]);
+
+    try {
+      const token = getToken() ?? undefined;
+      const response = await fetchDatasetColumns(datasetId, token);
+
+      if (response.columns && response.columns.length > 0) {
+        this.refs.columnSelector.setColumns(response.columns);
+      } else {
+        this.showStatusBanner("No columns found in dataset", "warning");
+      }
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Failed to load dataset columns";
+      this.showStatusBanner(message, "warning");
     } finally {
       this.state.columnsLoading = false;
     }
@@ -466,9 +634,17 @@ export class PageTrainCustom extends HTMLElement {
       return;
     }
 
-    if (!this.selectedDatasetFile) {
-      this.showStatusBanner("Please select a dataset file", "error");
-      return;
+    // Validate dataset based on mode
+    if (this.state.datasetMode === "upload") {
+      if (!this.selectedDatasetFile) {
+        this.showStatusBanner("Please select a dataset file", "error");
+        return;
+      }
+    } else {
+      if (!this.state.selectedDatasetId) {
+        this.showStatusBanner("Please select an existing dataset", "error");
+        return;
+      }
     }
 
     this.state.submitting = true;
@@ -485,7 +661,8 @@ export class PageTrainCustom extends HTMLElement {
 
       const request: CustomTrainingRequest = {
         algorithmId: parseInt(this.state.selectedAlgorithmId),
-        datasetFile: this.selectedDatasetFile!,
+        datasetFile: this.state.datasetMode === "upload" ? this.selectedDatasetFile! : undefined,
+        datasetId: this.state.datasetMode === "existing" ? this.state.selectedDatasetId! : undefined,
         parametersFile: this.selectedParametersFile || undefined,
         basicAttributesColumns: columnSelection.attributes || undefined,
         targetColumn: columnSelection.classColumn || undefined
@@ -540,6 +717,16 @@ export class PageTrainCustom extends HTMLElement {
     this.state.targetColumn = "";
     this.state.taskId = null;
     this.state.taskStatus = null;
+
+    // Reset dataset mode state
+    this.state.datasetMode = "upload";
+    this.state.selectedDatasetId = null;
+    this.refs.datasetModeUpload.checked = true;
+    this.refs.datasetModeExisting.checked = false;
+    this.refs.uploadSection.hidden = false;
+    this.refs.existingSection.hidden = true;
+    this.refs.datasetSelect.selectedIndex = 0;
+
     this.hideStatusBanner();
     this.stopPolling();
     this.updateStopButton();

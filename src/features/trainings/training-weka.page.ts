@@ -1,10 +1,12 @@
-import { getToken } from "../../core/auth.store";
+import { getToken, getCurrentUsername } from "../../core/auth.store";
 import { UnauthorizedError } from "../../core/http";
 import { taskStore } from "../../core/task.store";
 import { fetchAlgorithms, fetchAlgorithmWithOptions } from "../algorithms/api";
 import type { AlgorithmWeka } from "../algorithms/api";
 import { startTraining, parseDatasetColumns } from "./api";
 import { getTaskStatus, stopTask } from "../tasks/api";
+import { fetchDatasets, fetchDatasetColumns } from "../datasets/api";
+import type { DatasetDTO } from "../datasets/api";
 import styles from "./styles/training-weka.css?raw";
 import "./components/algorithm-options-configurator";
 import type { AlgorithmOptionsConfigurator } from "./components/algorithm-options-configurator";
@@ -12,6 +14,8 @@ import "./components/dataset-column-selector";
 import type { DatasetColumnSelector } from "./components/dataset-column-selector";
 
 type StatusTone = "info" | "success" | "error" | "warning";
+
+type DatasetMode = "upload" | "existing";
 
 type ComponentState = {
   algorithms: AlgorithmWeka[];
@@ -29,6 +33,11 @@ type ComponentState = {
   taskStatus: string | null;
   statusMessage: string | null;
   statusTone: StatusTone | null;
+  // Dataset mode state
+  datasetMode: DatasetMode;
+  existingDatasets: DatasetDTO[];
+  datasetsLoading: boolean;
+  selectedDatasetId: number | null;
 };
 
 type Refs = {
@@ -45,6 +54,12 @@ type Refs = {
   resetButton: HTMLButtonElement;
   stopButton: HTMLButtonElement;
   statusBanner: HTMLElement;
+  // Dataset mode refs
+  datasetModeUpload: HTMLInputElement;
+  datasetModeExisting: HTMLInputElement;
+  uploadSection: HTMLElement;
+  existingSection: HTMLElement;
+  datasetSelect: HTMLSelectElement;
 };
 
 type TaskStatusDTO = {
@@ -71,7 +86,12 @@ export class PageTrainWeka extends HTMLElement {
     taskId: null,
     taskStatus: null,
     statusMessage: null,
-    statusTone: null
+    statusTone: null,
+    // Dataset mode state
+    datasetMode: "upload",
+    existingDatasets: [],
+    datasetsLoading: false,
+    selectedDatasetId: null
   };
   private selectedFile: File | null = null;
   private pollTimer: number | null = null;
@@ -171,14 +191,38 @@ export class PageTrainWeka extends HTMLElement {
 
             <fieldset class="group">
               <legend>Dataset</legend>
-              <div class="dropzone" data-dropzone>
-                <p class="dropzone__title" data-file-name>No file selected</p>
-                <p class="dropzone__hint">Drag &amp; drop a <code>.csv</code> or <code>.arff</code> file, or</p>
-                <button class="btn ghost" type="button" data-action="choose-file">Select file</button>
+              <div class="dataset-mode-toggle">
+                <label class="dataset-mode-option">
+                  <input type="radio" name="datasetMode" value="upload" checked data-ref="datasetModeUpload" />
+                  <span>Upload new file</span>
+                </label>
+                <label class="dataset-mode-option">
+                  <input type="radio" name="datasetMode" value="existing" data-ref="datasetModeExisting" />
+                  <span>Select existing dataset</span>
+                </label>
               </div>
-              <input type="file" id="dataset" accept=".csv,.CSV,.arff,.ARFF" hidden />
-              <div class="group__actions">
-                <button class="btn ghost small" type="button" data-action="clear-file" disabled>Remove file</button>
+
+              <!-- Upload section -->
+              <div data-section="upload" data-ref="uploadSection">
+                <div class="dropzone" data-dropzone>
+                  <p class="dropzone__title" data-file-name>No file selected</p>
+                  <p class="dropzone__hint">Drag &amp; drop a <code>.csv</code> or <code>.arff</code> file, or</p>
+                  <button class="btn ghost" type="button" data-action="choose-file">Select file</button>
+                </div>
+                <input type="file" id="dataset" accept=".csv,.CSV,.arff,.ARFF" hidden />
+                <div class="group__actions">
+                  <button class="btn ghost small" type="button" data-action="clear-file" disabled>Remove file</button>
+                </div>
+              </div>
+
+              <!-- Existing dataset section -->
+              <div data-section="existing" data-ref="existingSection" hidden>
+                <label class="field">
+                  <span>Select Dataset</span>
+                  <select data-ref="datasetSelect">
+                    <option value="">Select a dataset...</option>
+                  </select>
+                </label>
               </div>
             </fieldset>
 
@@ -232,11 +276,18 @@ export class PageTrainWeka extends HTMLElement {
     const resetButton = this.root.querySelector<HTMLButtonElement>("[data-action='reset']");
     const stopButton = this.root.querySelector<HTMLButtonElement>("[data-action='stop']");
     const statusBanner = this.root.querySelector<HTMLElement>("[data-status]");
+    // Dataset mode refs
+    const datasetModeUpload = this.root.querySelector<HTMLInputElement>("[data-ref='datasetModeUpload']");
+    const datasetModeExisting = this.root.querySelector<HTMLInputElement>("[data-ref='datasetModeExisting']");
+    const uploadSection = this.root.querySelector<HTMLElement>("[data-ref='uploadSection']");
+    const existingSection = this.root.querySelector<HTMLElement>("[data-ref='existingSection']");
+    const datasetSelect = this.root.querySelector<HTMLSelectElement>("[data-ref='datasetSelect']");
 
     if (
       !form || !datasetInput || !dropzone || !chooseFileBtn || !clearFileBtn || !fileName ||
       !algorithmSelect || !optionsConfigurator || !columnSelector ||
-      !submitButton || !resetButton || !stopButton || !statusBanner
+      !submitButton || !resetButton || !stopButton || !statusBanner ||
+      !datasetModeUpload || !datasetModeExisting || !uploadSection || !existingSection || !datasetSelect
     ) {
       throw new Error("Missing training form elements");
     }
@@ -254,7 +305,12 @@ export class PageTrainWeka extends HTMLElement {
       submitButton,
       resetButton,
       stopButton,
-      statusBanner
+      statusBanner,
+      datasetModeUpload,
+      datasetModeExisting,
+      uploadSection,
+      existingSection,
+      datasetSelect
     };
   }
 
@@ -277,6 +333,22 @@ export class PageTrainWeka extends HTMLElement {
       this.updateSubmitState();
       if (value) {
         void this.loadAlgorithmOptions(parseInt(value));
+      }
+    });
+
+    // Dataset mode toggle handlers
+    this.refs.datasetModeUpload.addEventListener("change", () => this.handleDatasetModeChange("upload"));
+    this.refs.datasetModeExisting.addEventListener("change", () => this.handleDatasetModeChange("existing"));
+
+    // Existing dataset select handler
+    this.refs.datasetSelect.addEventListener("change", (event) => {
+      const value = (event.target as HTMLSelectElement).value;
+      if (value) {
+        void this.handleDatasetSelect(parseInt(value));
+      } else {
+        this.state.selectedDatasetId = null;
+        this.refs.columnSelector.setColumns([]);
+        this.updateSubmitState();
       }
     });
 
@@ -369,6 +441,103 @@ export class PageTrainWeka extends HTMLElement {
     }
   }
 
+  private handleDatasetModeChange(mode: DatasetMode) {
+    this.state.datasetMode = mode;
+    this.state.selectedDatasetId = null;
+    this.refs.columnSelector.setColumns([]);
+
+    if (mode === "upload") {
+      this.refs.uploadSection.hidden = false;
+      this.refs.existingSection.hidden = true;
+    } else {
+      this.refs.uploadSection.hidden = true;
+      this.refs.existingSection.hidden = false;
+      // Load datasets when switching to existing mode
+      void this.loadExistingDatasets();
+    }
+
+    this.updateSubmitState();
+  }
+
+  private async loadExistingDatasets() {
+    this.state.datasetsLoading = true;
+    this.refs.datasetSelect.innerHTML = '<option value="">Loading datasets...</option>';
+    this.refs.datasetSelect.disabled = true;
+
+    try {
+      const token = getToken() ?? undefined;
+      const datasets = await fetchDatasets(token);
+      this.state.existingDatasets = datasets;
+      this.populateDatasetSelect();
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Failed to load datasets";
+      this.showStatus(message, "error");
+      this.refs.datasetSelect.innerHTML = '<option value="">Failed to load datasets</option>';
+    } finally {
+      this.state.datasetsLoading = false;
+      this.refs.datasetSelect.disabled = false;
+    }
+  }
+
+  private populateDatasetSelect() {
+    const select = this.refs.datasetSelect;
+    const currentUsername = getCurrentUsername();
+
+    // My datasets = owned by me (regardless of accessibility)
+    const myDatasets = this.state.existingDatasets.filter(d => d.ownerUsername === currentUsername);
+    // Public datasets = NOT owned by me AND status is PUBLIC
+    const publicDatasets = this.state.existingDatasets.filter(d => d.ownerUsername !== currentUsername && d.status === "PUBLIC");
+
+    let optionsHtml = '<option value="">Select a dataset...</option>';
+
+    if (myDatasets.length > 0) {
+      optionsHtml += '<optgroup label="Your Datasets">';
+      optionsHtml += myDatasets.map(d =>
+        `<option value="${d.id}">${this.escapeHtml(d.originalFileName)}</option>`
+      ).join("");
+      optionsHtml += '</optgroup>';
+    }
+
+    if (publicDatasets.length > 0) {
+      optionsHtml += '<optgroup label="Public Datasets">';
+      optionsHtml += publicDatasets.map(d =>
+        `<option value="${d.id}">${this.escapeHtml(d.originalFileName)} (${this.escapeHtml(d.ownerUsername)})</option>`
+      ).join("");
+      optionsHtml += '</optgroup>';
+    }
+
+    select.innerHTML = optionsHtml;
+  }
+
+  private async handleDatasetSelect(datasetId: number) {
+    this.state.selectedDatasetId = datasetId;
+    this.state.columnsLoading = true;
+    this.refs.columnSelector.setColumns([]);
+
+    try {
+      const token = getToken() ?? undefined;
+      const response = await fetchDatasetColumns(datasetId, token);
+
+      if (response.columns && response.columns.length > 0) {
+        this.refs.columnSelector.setColumns(response.columns);
+      } else {
+        this.showStatus("No columns found in dataset", "warning");
+      }
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Failed to load dataset columns";
+      this.showStatus(message, "warning");
+    } finally {
+      this.state.columnsLoading = false;
+      this.updateSubmitState();
+    }
+  }
+
   private populateAlgorithms(algorithms: AlgorithmWeka[]) {
     const select = this.refs.algorithmSelect;
     const previous = this.state.selectedAlgorithmId;
@@ -441,12 +610,18 @@ export class PageTrainWeka extends HTMLElement {
   }
 
   private updateSubmitState() {
+    // Check if dataset is provided based on mode
+    const hasDataset = this.state.datasetMode === "upload"
+      ? Boolean(this.selectedFile)
+      : Boolean(this.state.selectedDatasetId);
+
     const canSubmit = Boolean(
-      this.selectedFile &&
+      hasDataset &&
       this.state.selectedAlgorithmId &&
       !this.state.submitting &&
       !this.state.algorithmsLoading &&
-      !this.state.algorithmsError
+      !this.state.algorithmsError &&
+      !this.state.columnsLoading
     );
 
     this.refs.submitButton.disabled = !canSubmit;
@@ -456,14 +631,23 @@ export class PageTrainWeka extends HTMLElement {
     this.refs.chooseFileBtn.disabled = this.state.submitting;
     this.refs.resetButton.disabled = this.state.submitting;
     this.refs.clearFileBtn.disabled = !this.selectedFile || this.state.submitting;
+    this.refs.datasetSelect.disabled = this.state.datasetsLoading || this.state.submitting;
   }
 
   private async handleSubmit(event: Event) {
     event.preventDefault();
 
-    if (!this.selectedFile) {
-      this.showStatus("Please select a dataset file before starting the training.", "error");
-      return;
+    // Validate dataset based on mode
+    if (this.state.datasetMode === "upload") {
+      if (!this.selectedFile) {
+        this.showStatus("Please select a dataset file before starting the training.", "error");
+        return;
+      }
+    } else {
+      if (!this.state.selectedDatasetId) {
+        this.showStatus("Please select an existing dataset before starting the training.", "error");
+        return;
+      }
     }
 
     const algorithmId = this.state.selectedAlgorithmId || this.refs.algorithmSelect.value;
@@ -484,7 +668,14 @@ export class PageTrainWeka extends HTMLElement {
 
     const optionsValue = this.refs.optionsConfigurator.getCliString().trim();
     const formData = new FormData();
-    formData.append("file", this.selectedFile);
+
+    // Add dataset based on mode
+    if (this.state.datasetMode === "upload" && this.selectedFile) {
+      formData.append("file", this.selectedFile);
+    } else if (this.state.datasetMode === "existing" && this.state.selectedDatasetId) {
+      formData.append("datasetId", this.state.selectedDatasetId.toString());
+    }
+
     formData.append("algorithmId", algorithmId);
     formData.append("options", optionsValue);
 
@@ -503,7 +694,11 @@ export class PageTrainWeka extends HTMLElement {
     this.state.taskStatus = null;
     this.stopPolling();
     this.setSubmitting(true);
-    this.showStatus("Uploading dataset and starting training…", "info");
+
+    const statusMessage = this.state.datasetMode === "upload"
+      ? "Uploading dataset and starting training…"
+      : "Starting training with existing dataset…";
+    this.showStatus(statusMessage, "info");
 
     try {
       const token = getToken() ?? undefined;
@@ -772,6 +967,15 @@ export class PageTrainWeka extends HTMLElement {
     this.state.targetColumn = "";
     this.state.taskId = null;
     this.state.taskStatus = null;
+
+    // Reset dataset mode state
+    this.state.datasetMode = "upload";
+    this.state.selectedDatasetId = null;
+    this.refs.datasetModeUpload.checked = true;
+    this.refs.datasetModeExisting.checked = false;
+    this.refs.uploadSection.hidden = false;
+    this.refs.existingSection.hidden = true;
+    this.refs.datasetSelect.selectedIndex = 0;
 
     // Reset components
     this.refs.optionsConfigurator.setOptions([]);

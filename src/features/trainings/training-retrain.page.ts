@@ -1,4 +1,4 @@
-import { getToken } from "../../core/auth.store";
+import { getToken, getCurrentUsername } from "../../core/auth.store";
 import { UnauthorizedError } from "../../core/http";
 import { taskStore } from "../../core/task.store";
 import type { TaskType } from "../../core/task.store";
@@ -11,6 +11,8 @@ import type {
   RetrainTrainingDetails,
   RetrainTrainingOption
 } from "./api";
+import { fetchDatasets, fetchDatasetColumns } from "../datasets/api";
+import type { DatasetDTO } from "../datasets/api";
 import { getTaskStatus, stopTask } from "../tasks/api";
 import styles from "./styles/training-retrain.css?raw";
 import "./components/algorithm-options-configurator";
@@ -21,6 +23,7 @@ import type { DatasetColumnSelector } from "./components/dataset-column-selector
 type StatusTone = "info" | "success" | "error" | "warning";
 type SourceMode = "training" | "model";
 type TrainingType = "PREDEFINED" | "CUSTOM";
+type DatasetMode = "original" | "upload" | "existing";
 
 type ComponentState = {
   mode: SourceMode;
@@ -50,6 +53,11 @@ type ComponentState = {
   statusMessage: string | null;
   statusTone: StatusTone | null;
   trainingType: TrainingType | null;  // Track if selected source is Weka or Custom
+  // Dataset mode state
+  datasetMode: DatasetMode;
+  existingDatasets: DatasetDTO[];
+  datasetsLoading: boolean;
+  selectedExistingDatasetId: number | null;
 };
 
 type TaskStatusDTO = {
@@ -85,6 +93,14 @@ type Refs = {
   paramsFileName: HTMLElement;
   chooseParamsBtn: HTMLButtonElement;
   clearParamsBtn: HTMLButtonElement;
+  // Dataset mode refs
+  datasetModeOriginal: HTMLInputElement;
+  datasetModeUpload: HTMLInputElement;
+  datasetModeExisting: HTMLInputElement;
+  originalSection: HTMLElement;
+  uploadSection: HTMLElement;
+  existingSection: HTMLElement;
+  datasetSelect: HTMLSelectElement;
 };
 
 export class PageTrainRetrain extends HTMLElement {
@@ -117,7 +133,12 @@ export class PageTrainRetrain extends HTMLElement {
     taskStatus: null,
     statusMessage: null,
     statusTone: null,
-    trainingType: null
+    trainingType: null,
+    // Dataset mode state
+    datasetMode: "original",
+    existingDatasets: [],
+    datasetsLoading: false,
+    selectedExistingDatasetId: null
   };
   private selectedFile: File | null = null;
   private selectedParamsFile: File | null = null;
@@ -194,15 +215,49 @@ export class PageTrainRetrain extends HTMLElement {
 
             <fieldset class="group">
               <legend>Dataset</legend>
-              <div class="dropzone" data-dropzone>
-                <p class="dropzone__title" data-file-name>No file selected</p>
-                <p class="dropzone__hint">Drag &amp; drop a <code>.csv</code> or <code>.arff</code> file, or</p>
-                <button class="btn ghost" type="button" data-action="choose-file">Select file</button>
-                <p class="dropzone__caption" data-dataset-caption></p>
+              <div class="dataset-mode-toggle">
+                <label class="dataset-mode-option">
+                  <input type="radio" name="datasetMode" value="original" checked data-ref="datasetModeOriginal" />
+                  <span>Use original dataset</span>
+                </label>
+                <label class="dataset-mode-option">
+                  <input type="radio" name="datasetMode" value="upload" data-ref="datasetModeUpload" />
+                  <span>Upload new file</span>
+                </label>
+                <label class="dataset-mode-option">
+                  <input type="radio" name="datasetMode" value="existing" data-ref="datasetModeExisting" />
+                  <span>Select existing dataset</span>
+                </label>
               </div>
-              <input type="file" id="dataset" accept=".csv,.CSV,.arff,.ARFF" hidden />
-              <div class="group__actions">
-                <button class="btn ghost small" type="button" data-action="clear-file" disabled>Remove file</button>
+
+              <!-- Original dataset section -->
+              <div data-section="original" data-ref="originalSection">
+                <div class="original-dataset-info">
+                  <p class="original-dataset-name" data-dataset-caption>Select a training/model first</p>
+                </div>
+              </div>
+
+              <!-- Upload section -->
+              <div data-section="upload" data-ref="uploadSection" hidden>
+                <div class="dropzone" data-dropzone>
+                  <p class="dropzone__title" data-file-name>No file selected</p>
+                  <p class="dropzone__hint">Drag &amp; drop a <code>.csv</code> or <code>.arff</code> file, or</p>
+                  <button class="btn ghost" type="button" data-action="choose-file">Select file</button>
+                </div>
+                <input type="file" id="dataset" accept=".csv,.CSV,.arff,.ARFF" hidden />
+                <div class="group__actions">
+                  <button class="btn ghost small" type="button" data-action="clear-file" disabled>Remove file</button>
+                </div>
+              </div>
+
+              <!-- Existing dataset section -->
+              <div data-section="existing" data-ref="existingSection" hidden>
+                <label class="field">
+                  <span>Select Dataset</span>
+                  <select data-ref="datasetSelect">
+                    <option value="">Select a dataset...</option>
+                  </select>
+                </label>
               </div>
             </fieldset>
 
@@ -279,13 +334,22 @@ export class PageTrainRetrain extends HTMLElement {
     const paramsFileName = this.root.querySelector<HTMLElement>("[data-params-file-name]");
     const chooseParamsBtn = this.root.querySelector<HTMLButtonElement>("[data-action='choose-params']");
     const clearParamsBtn = this.root.querySelector<HTMLButtonElement>("[data-action='clear-params']");
+    // Dataset mode refs
+    const datasetModeOriginal = this.root.querySelector<HTMLInputElement>("[data-ref='datasetModeOriginal']");
+    const datasetModeUpload = this.root.querySelector<HTMLInputElement>("[data-ref='datasetModeUpload']");
+    const datasetModeExisting = this.root.querySelector<HTMLInputElement>("[data-ref='datasetModeExisting']");
+    const originalSection = this.root.querySelector<HTMLElement>("[data-ref='originalSection']");
+    const uploadSection = this.root.querySelector<HTMLElement>("[data-ref='uploadSection']");
+    const existingSection = this.root.querySelector<HTMLElement>("[data-ref='existingSection']");
+    const datasetSelect = this.root.querySelector<HTMLSelectElement>("[data-ref='datasetSelect']");
 
     if (
       !form || !datasetInput || !dropzone || !chooseFileBtn || !clearFileBtn || !fileName || !datasetCaption ||
       !algorithmSelect || !optionsConfigurator || !columnSelector ||
       !submitButton || !resetButton || !stopButton || !statusBanner || !modeTrainingRadio || !modeModelRadio ||
       !trainingWrapper || !modelWrapper || !trainingSelect || !modelSelect ||
-      !algorithmFieldset || !paramsFieldset || !paramsInput || !paramsFileName || !chooseParamsBtn || !clearParamsBtn
+      !algorithmFieldset || !paramsFieldset || !paramsInput || !paramsFileName || !chooseParamsBtn || !clearParamsBtn ||
+      !datasetModeOriginal || !datasetModeUpload || !datasetModeExisting || !originalSection || !uploadSection || !existingSection || !datasetSelect
     ) {
       throw new Error("Missing retrain form elements");
     }
@@ -316,7 +380,14 @@ export class PageTrainRetrain extends HTMLElement {
       paramsInput,
       paramsFileName,
       chooseParamsBtn,
-      clearParamsBtn
+      clearParamsBtn,
+      datasetModeOriginal,
+      datasetModeUpload,
+      datasetModeExisting,
+      originalSection,
+      uploadSection,
+      existingSection,
+      datasetSelect
     } as Refs;
   }
 
@@ -343,6 +414,23 @@ export class PageTrainRetrain extends HTMLElement {
 
     this.refs.trainingSelect.addEventListener("change", (event) => this.handleTrainingSelection(event));
     this.refs.modelSelect.addEventListener("change", (event) => this.handleModelSelection(event));
+
+    // Dataset mode toggle handlers
+    this.refs.datasetModeOriginal.addEventListener("change", () => this.handleDatasetModeChange("original"));
+    this.refs.datasetModeUpload.addEventListener("change", () => this.handleDatasetModeChange("upload"));
+    this.refs.datasetModeExisting.addEventListener("change", () => this.handleDatasetModeChange("existing"));
+
+    // Existing dataset select handler
+    this.refs.datasetSelect.addEventListener("change", (event) => {
+      const value = (event.target as HTMLSelectElement).value;
+      if (value) {
+        void this.handleExistingDatasetSelect(parseInt(value));
+      } else {
+        this.state.selectedExistingDatasetId = null;
+        this.refs.columnSelector.setColumns([]);
+        this.updateSubmitState();
+      }
+    });
 
     this.refs.algorithmSelect.addEventListener("change", (event) => {
       const value = (event.target as HTMLSelectElement).value;
@@ -433,6 +521,119 @@ export class PageTrainRetrain extends HTMLElement {
     } finally {
       this.state.columnsLoading = false;
     }
+  }
+
+  private handleDatasetModeChange(mode: DatasetMode) {
+    this.state.datasetMode = mode;
+    this.state.selectedExistingDatasetId = null;
+    this.selectedFile = null;
+    this.refs.datasetInput.value = "";
+    this.refs.columnSelector.setColumns([]);
+
+    // Update UI visibility
+    this.refs.originalSection.hidden = mode !== "original";
+    this.refs.uploadSection.hidden = mode !== "upload";
+    this.refs.existingSection.hidden = mode !== "existing";
+
+    // Load datasets when switching to existing mode
+    if (mode === "existing") {
+      void this.loadExistingDatasets();
+    }
+
+    this.updateDatasetDisplay();
+    this.updateSubmitState();
+  }
+
+  private async loadExistingDatasets() {
+    this.state.datasetsLoading = true;
+    this.refs.datasetSelect.innerHTML = '<option value="">Loading datasets...</option>';
+    this.refs.datasetSelect.disabled = true;
+
+    try {
+      const token = getToken() ?? undefined;
+      const datasets = await fetchDatasets(token);
+      this.state.existingDatasets = datasets;
+      this.populateDatasetSelect();
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Failed to load datasets";
+      this.showStatus(message, "error");
+      this.refs.datasetSelect.innerHTML = '<option value="">Failed to load datasets</option>';
+    } finally {
+      this.state.datasetsLoading = false;
+      this.refs.datasetSelect.disabled = false;
+    }
+  }
+
+  private populateDatasetSelect() {
+    const select = this.refs.datasetSelect;
+    const currentUsername = getCurrentUsername();
+
+    // My datasets = owned by me (regardless of accessibility)
+    const myDatasets = this.state.existingDatasets.filter(d => d.ownerUsername === currentUsername);
+    // Public datasets = NOT owned by me AND status is PUBLIC
+    const publicDatasets = this.state.existingDatasets.filter(d => d.ownerUsername !== currentUsername && d.status === "PUBLIC");
+
+    let optionsHtml = '<option value="">Select a dataset...</option>';
+
+    if (myDatasets.length > 0) {
+      optionsHtml += '<optgroup label="Your Datasets">';
+      optionsHtml += myDatasets.map(d =>
+        `<option value="${d.id}">${this.escapeHtml(d.originalFileName)}</option>`
+      ).join("");
+      optionsHtml += '</optgroup>';
+    }
+
+    if (publicDatasets.length > 0) {
+      optionsHtml += '<optgroup label="Public Datasets">';
+      optionsHtml += publicDatasets.map(d =>
+        `<option value="${d.id}">${this.escapeHtml(d.originalFileName)} (${this.escapeHtml(d.ownerUsername)})</option>`
+      ).join("");
+      optionsHtml += '</optgroup>';
+    }
+
+    select.innerHTML = optionsHtml;
+  }
+
+  private async handleExistingDatasetSelect(datasetId: number) {
+    this.state.selectedExistingDatasetId = datasetId;
+    this.state.columnsLoading = true;
+    this.refs.columnSelector.setColumns([]);
+
+    try {
+      const token = getToken() ?? undefined;
+      const response = await fetchDatasetColumns(datasetId, token);
+
+      if (response.columns && response.columns.length > 0) {
+        this.refs.columnSelector.setColumns(response.columns);
+      } else {
+        this.showStatus("No columns found in dataset", "warning");
+      }
+    } catch (error) {
+      if (error instanceof UnauthorizedError) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Failed to load dataset columns";
+      this.showStatus(message, "warning");
+    } finally {
+      this.state.columnsLoading = false;
+      this.updateSubmitState();
+    }
+  }
+
+  private escapeHtml(value: string): string {
+    return value.replace(/[&<>\"']/g, (char) => {
+      switch (char) {
+        case "&": return "&amp;";
+        case "<": return "&lt;";
+        case ">": return "&gt;";
+        case '"': return "&quot;";
+        case "'": return "&#39;";
+        default: return char;
+      }
+    });
   }
 
   private async loadOptions() {
@@ -763,19 +964,21 @@ export class PageTrainRetrain extends HTMLElement {
   }
 
   private updateDatasetDisplay() {
-    if (this.selectedFile) {
-      this.refs.fileName.textContent = this.selectedFile.name;
-      this.refs.datasetCaption.textContent = "Uploading new dataset";
-      return;
+    // Update based on current dataset mode
+    if (this.state.datasetMode === "original") {
+      if (this.state.datasetName) {
+        this.refs.datasetCaption.textContent = this.state.datasetName;
+      } else {
+        this.refs.datasetCaption.textContent = "Select a training/model first";
+      }
+    } else if (this.state.datasetMode === "upload") {
+      if (this.selectedFile) {
+        this.refs.fileName.textContent = this.selectedFile.name;
+      } else {
+        this.refs.fileName.textContent = "No file selected";
+      }
     }
-
-    if (this.state.datasetName) {
-      this.refs.fileName.textContent = "Using existing dataset";
-      this.refs.datasetCaption.textContent = this.state.datasetName;
-    } else {
-      this.refs.fileName.textContent = "No file selected";
-      this.refs.datasetCaption.textContent = "";
-    }
+    // For "existing" mode, the select dropdown handles the display
   }
 
   private handleParamsFileInput(files: FileList | null) {
@@ -805,7 +1008,9 @@ export class PageTrainRetrain extends HTMLElement {
   private updateTrainingTypeUI() {
     const isCustom = this.state.trainingType === "CUSTOM";
     const isPredefined = this.state.trainingType === "PREDEFINED";
-    const hasSelection = this.state.trainingType !== null;
+    // hasSelection is kept for potential future use
+    const _hasSelection = this.state.trainingType !== null;
+    void _hasSelection;
 
     // Hide both sections if no training/model selected yet
     // Show algorithm fieldset only for Weka (PREDEFINED)
@@ -905,7 +1110,16 @@ export class PageTrainRetrain extends HTMLElement {
     if (!sourceId) return false;
     if (!this.state.details) return false;
 
-    const hasDataset = Boolean(this.selectedFile || this.state.details.datasetConfigurationId || this.state.details.datasetId);
+    // Check dataset based on mode
+    let hasDataset = false;
+    if (this.state.datasetMode === "original") {
+      hasDataset = Boolean(this.state.details.datasetConfigurationId || this.state.details.datasetId);
+    } else if (this.state.datasetMode === "upload") {
+      hasDataset = Boolean(this.selectedFile);
+    } else if (this.state.datasetMode === "existing") {
+      hasDataset = Boolean(this.state.selectedExistingDatasetId);
+    }
+
     if (!hasDataset) return false;
 
     return true;
@@ -953,10 +1167,22 @@ export class PageTrainRetrain extends HTMLElement {
 
       if (this.state.trainingType === "CUSTOM") {
         // Custom training retrain - use startCustomRetrain
+        // Determine dataset source based on mode
+        let datasetFile: File | undefined;
+        let datasetId: number | undefined;
+
+        if (this.state.datasetMode === "upload") {
+          datasetFile = this.selectedFile ?? undefined;
+        } else if (this.state.datasetMode === "existing") {
+          datasetId = this.state.selectedExistingDatasetId ?? undefined;
+        }
+        // For "original" mode, no dataset is sent - backend uses the original
+
         response = await startCustomRetrain({
           trainingId: this.state.mode === "training" ? parseInt(sourceId) : undefined,
           modelId: this.state.mode === "model" ? parseInt(sourceId) : undefined,
-          datasetFile: this.selectedFile ?? undefined,
+          datasetFile,
+          datasetId,
           parametersFile: this.selectedParamsFile ?? undefined,
           basicAttributesColumns: this.refs.columnSelector.getSelectionAsStrings().attributes ?? undefined,
           targetColumn: this.refs.columnSelector.getSelectionAsStrings().classColumn ?? undefined
@@ -971,12 +1197,18 @@ export class PageTrainRetrain extends HTMLElement {
           formData.append("modelId", sourceId);
         }
 
-        if (this.selectedFile) {
+        // Add dataset based on dataset mode
+        if (this.state.datasetMode === "upload" && this.selectedFile) {
           formData.append("file", this.selectedFile);
-        } else if (this.state.datasetConfigurationId) {
-          formData.append("datasetConfigurationId", this.state.datasetConfigurationId);
-        } else if (this.state.datasetId) {
-          formData.append("datasetId", this.state.datasetId);
+        } else if (this.state.datasetMode === "existing" && this.state.selectedExistingDatasetId) {
+          formData.append("datasetId", this.state.selectedExistingDatasetId.toString());
+        } else if (this.state.datasetMode === "original") {
+          // Use original dataset configuration
+          if (this.state.datasetConfigurationId) {
+            formData.append("datasetConfigurationId", this.state.datasetConfigurationId);
+          } else if (this.state.datasetId) {
+            formData.append("datasetId", this.state.datasetId);
+          }
         }
 
         // Get options from configurator
