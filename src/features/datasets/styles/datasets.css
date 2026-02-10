@@ -90,20 +90,21 @@ td {
 }
 
 /* Allow Actions column to show dropdown */
-td:nth-child(8) {
+td:nth-child(9) {
   overflow: visible;
   white-space: normal;
 }
 
-/* Column width distribution - 8 columns */
-th:nth-child(1), td:nth-child(1) { width: 20%; } /* Filename */
-th:nth-child(2), td:nth-child(2) { width: 11%; } /* Size */
-th:nth-child(3), td:nth-child(3) { width: 11%; } /* Type */
-th:nth-child(4), td:nth-child(4) { width: 13%; } /* Status */
-th:nth-child(5), td:nth-child(5) { width: 13%; } /* Owner */
-th:nth-child(6), td:nth-child(6) { width: 13%; } /* Uploaded */
-th:nth-child(7), td:nth-child(7) { width: 11%; } /* Trainings */
-th:nth-child(8), td:nth-child(8) { width: 8%; } /* Actions */
+/* Column width distribution - 9 columns */
+th:nth-child(1), td:nth-child(1) { width: 18%; } /* Filename */
+th:nth-child(2), td:nth-child(2) { width: 8%; }  /* Size */
+th:nth-child(3), td:nth-child(3) { width: 10%; } /* Format */
+th:nth-child(4), td:nth-child(4) { width: 10%; } /* Purpose */
+th:nth-child(5), td:nth-child(5) { width: 10%; } /* Status */
+th:nth-child(6), td:nth-child(6) { width: 10%; } /* Owner */
+th:nth-child(7), td:nth-child(7) { width: 12%; } /* Uploaded */
+th:nth-child(8), td:nth-child(8) { width: 10%; } /* Trainings */
+th:nth-child(9), td:nth-child(9) { width: 12%; } /* Actions */
 
 th {
   font-size: 0.75rem;
@@ -497,10 +498,10 @@ tbody tr:hover {
     align-items: flex-start;
   }
 
-  th:nth-child(5),
   th:nth-child(6),
-  td:nth-child(5),
-  td:nth-child(6) {
+  th:nth-child(7),
+  td:nth-child(6),
+  td:nth-child(7) {
     white-space: nowrap;
   }
 }
