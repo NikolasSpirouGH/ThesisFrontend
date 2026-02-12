@@ -440,7 +440,12 @@ export class PageExecution extends HTMLElement {
 
   private handleDatasetModeChange(mode: DatasetMode) {
     this.state.datasetMode = mode;
+
+    // Always clear both selections when switching modes
     this.state.selectedDatasetId = null;
+    this.setFile(null);
+    this.refs.datasetInput.value = "";
+    this.refs.datasetSelect.value = "";
 
     if (mode === "upload") {
       this.refs.uploadSection.hidden = false;
@@ -513,6 +518,17 @@ export class PageExecution extends HTMLElement {
       ? Boolean(this.selectedFile)
       : Boolean(this.state.selectedDatasetId);
 
+    console.log("🔄 updateSubmitState:", {
+      datasetMode: this.state.datasetMode,
+      selectedFile: this.selectedFile?.name,
+      selectedDatasetId: this.state.selectedDatasetId,
+      hasDataset,
+      selectedModelId: this.state.selectedModelId,
+      submitting: this.state.submitting,
+      modelsLoading: this.state.modelsLoading,
+      modelsError: this.state.modelsError
+    });
+
     const canSubmit = Boolean(
       hasDataset &&
       this.state.selectedModelId &&
@@ -520,6 +536,8 @@ export class PageExecution extends HTMLElement {
       !this.state.modelsLoading &&
       !this.state.modelsError
     );
+
+    console.log("🔄 canSubmit:", canSubmit);
 
     this.refs.submitButton.disabled = !canSubmit;
     this.refs.submitButton.textContent = this.state.submitting ? "Starting…" : "Start execution";
@@ -561,13 +579,26 @@ export class PageExecution extends HTMLElement {
     const formData = new FormData();
 
     // Add dataset based on mode
+    console.log("📤 Submit - mode:", this.state.datasetMode);
+    console.log("📤 Submit - selectedFile:", this.selectedFile?.name, "size:", this.selectedFile?.size, "type:", this.selectedFile?.type);
+    console.log("📤 Submit - selectedDatasetId:", this.state.selectedDatasetId);
+    console.log("📤 Submit - datasetInput.files:", this.refs.datasetInput.files?.[0]?.name, "size:", this.refs.datasetInput.files?.[0]?.size);
+
     if (this.state.datasetMode === "upload" && this.selectedFile) {
-      formData.append("predictionFile", this.selectedFile);
+      // Use the file from the input element directly in case this.selectedFile is stale
+      const fileToSend = this.refs.datasetInput.files?.[0] || this.selectedFile;
+      console.log("📤 File to send:", fileToSend.name, "size:", fileToSend.size);
+      formData.append("predictionFile", fileToSend);
+      console.log("📤 Appending predictionFile:", fileToSend.name);
     } else if (this.state.datasetMode === "existing" && this.state.selectedDatasetId) {
       formData.append("datasetId", this.state.selectedDatasetId.toString());
+      console.log("📤 Appending datasetId:", this.state.selectedDatasetId);
+    } else {
+      console.error("❌ No file or datasetId to send!");
     }
 
     formData.append("modelId", modelId);
+    console.log("📤 FormData keys:", [...formData.keys()]);
 
     this.state.taskId = null;
     this.state.taskStatus = null;

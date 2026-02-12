@@ -140,14 +140,17 @@ class PageCategories extends HTMLElement {
                   ${isView ? "disabled" : ""}
                 >${this.formData.description ?? ""}</textarea>
               </div>
+              <div class="form-group">
+                <label>Parent Categories (optional)</label>
+                <p class="field-hint">Select categories that this category belongs to. A category can have multiple parents.</p>
+                <div class="parent-categories-list">
+                  ${this.renderParentCategoryCheckboxes(isEdit)}
+                </div>
+              </div>
               ${isView ? `
                 <div class="form-group">
                   <label>Created By</label>
                   <input type="text" value="${this.formData.createdByUsername ?? "—"}" disabled />
-                </div>
-                <div class="form-group">
-                  <label>Parent Categories</label>
-                  <input type="text" value="${parentCategoryNames}" disabled />
                 </div>
               ` : ""}
               <div class="form-actions">
@@ -292,6 +295,40 @@ class PageCategories extends HTMLElement {
       .filter(name => name !== null);
   }
 
+  private renderParentCategoryCheckboxes(isEdit: boolean): string {
+    // Filter out the current category being edited (can't be its own parent)
+    const availableCategories = this.categories.filter(c =>
+      !c.deleted && c.id !== this.dialogCategoryId
+    );
+
+    if (availableCategories.length === 0) {
+      return '<p class="no-categories">No other categories available</p>';
+    }
+
+    const currentParentIds = this.formData.parentCategoryIds ?? [];
+
+    return availableCategories.map(cat => {
+      const isChecked = currentParentIds.includes(cat.id);
+      return `
+        <label class="checkbox-label">
+          <input
+            type="checkbox"
+            name="parentCategoryIds"
+            value="${cat.id}"
+            ${isChecked ? "checked" : ""}
+          />
+          <span>${this.escapeHtml(cat.name)}</span>
+        </label>
+      `;
+    }).join("");
+  }
+
+  private escapeHtml(text: string): string {
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
   private bindEvents() {
     this.root.querySelector<HTMLButtonElement>("[data-action='create']")?.addEventListener("click", () => {
       this.dialogMode = "create";
@@ -320,10 +357,27 @@ class PageCategories extends HTMLElement {
       const name = formData.get("name") as string;
       const description = formData.get("description") as string;
 
+      // Collect selected parent category IDs
+      const selectedParentIds = formData.getAll("parentCategoryIds").map(v => Number(v));
+
       if (this.dialogMode === "create" && name) {
-        void this.handleCreate({ name, description: description || undefined });
+        void this.handleCreate({
+          name,
+          description: description || undefined,
+          parentCategoryIds: selectedParentIds.length > 0 ? selectedParentIds : undefined
+        });
       } else if (this.dialogMode === "edit" && this.dialogCategoryId) {
-        void this.handleUpdate(this.dialogCategoryId, { name, description });
+        // For edit, we need to calculate which parents to add and which to remove
+        const currentParentIds = this.formData.parentCategoryIds ?? [];
+        const newParentCategoryIds = selectedParentIds.filter(id => !currentParentIds.includes(id));
+        const parentCategoryIdsToRemove = currentParentIds.filter(id => !selectedParentIds.includes(id));
+
+        void this.handleUpdate(this.dialogCategoryId, {
+          name: name || undefined,
+          description: description || undefined,
+          newParentCategoryIds: newParentCategoryIds.length > 0 ? newParentCategoryIds : undefined,
+          parentCategoryIdsToRemove: parentCategoryIdsToRemove.length > 0 ? parentCategoryIdsToRemove : undefined
+        });
       }
     });
 

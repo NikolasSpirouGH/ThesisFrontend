@@ -525,9 +525,13 @@ export class PageTrainRetrain extends HTMLElement {
 
   private handleDatasetModeChange(mode: DatasetMode) {
     this.state.datasetMode = mode;
+
+    // Always clear all selections when switching modes
     this.state.selectedExistingDatasetId = null;
     this.selectedFile = null;
     this.refs.datasetInput.value = "";
+    this.refs.fileName.textContent = "No file selected";
+    this.refs.datasetSelect.value = "";
     this.refs.columnSelector.setColumns([]);
 
     // Update UI visibility

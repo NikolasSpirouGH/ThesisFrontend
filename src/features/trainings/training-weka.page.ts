@@ -443,7 +443,13 @@ export class PageTrainWeka extends HTMLElement {
 
   private handleDatasetModeChange(mode: DatasetMode) {
     this.state.datasetMode = mode;
+
+    // Always clear both selections when switching modes
     this.state.selectedDatasetId = null;
+    this.selectedFile = null;
+    this.refs.datasetInput.value = "";
+    this.refs.fileName.textContent = "No file selected";
+    this.refs.datasetSelect.value = "";
     this.refs.columnSelector.setColumns([]);
 
     if (mode === "upload") {
@@ -452,7 +458,6 @@ export class PageTrainWeka extends HTMLElement {
     } else {
       this.refs.uploadSection.hidden = true;
       this.refs.existingSection.hidden = false;
-      // Load datasets when switching to existing mode
       void this.loadExistingDatasets();
     }
 
@@ -615,6 +620,18 @@ export class PageTrainWeka extends HTMLElement {
       ? Boolean(this.selectedFile)
       : Boolean(this.state.selectedDatasetId);
 
+    console.log("🔄 updateSubmitState:", {
+      datasetMode: this.state.datasetMode,
+      selectedFile: this.selectedFile?.name,
+      selectedDatasetId: this.state.selectedDatasetId,
+      hasDataset,
+      selectedAlgorithmId: this.state.selectedAlgorithmId,
+      submitting: this.state.submitting,
+      algorithmsLoading: this.state.algorithmsLoading,
+      algorithmsError: this.state.algorithmsError,
+      columnsLoading: this.state.columnsLoading
+    });
+
     const canSubmit = Boolean(
       hasDataset &&
       this.state.selectedAlgorithmId &&
@@ -623,6 +640,8 @@ export class PageTrainWeka extends HTMLElement {
       !this.state.algorithmsError &&
       !this.state.columnsLoading
     );
+
+    console.log("🔄 canSubmit:", canSubmit);
 
     this.refs.submitButton.disabled = !canSubmit;
     this.refs.submitButton.textContent = this.state.submitting ? "Starting…" : "Start training";

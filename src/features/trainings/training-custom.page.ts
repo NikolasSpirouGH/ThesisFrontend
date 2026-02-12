@@ -410,7 +410,13 @@ export class PageTrainCustom extends HTMLElement {
 
   private handleDatasetModeChange(mode: DatasetMode) {
     this.state.datasetMode = mode;
+
+    // Always clear both selections when switching modes
     this.state.selectedDatasetId = null;
+    this.selectedFile = null;
+    this.refs.datasetInput.value = "";
+    this.refs.fileName.textContent = "No file selected";
+    this.refs.datasetSelect.value = "";
     this.refs.columnSelector.setColumns([]);
 
     if (mode === "upload") {
@@ -421,6 +427,8 @@ export class PageTrainCustom extends HTMLElement {
       this.refs.existingSection.hidden = false;
       void this.loadExistingDatasets();
     }
+
+    this.updateSubmitState();
   }
 
   private async loadExistingDatasets() {
