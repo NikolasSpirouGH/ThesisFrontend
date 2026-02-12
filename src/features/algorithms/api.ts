@@ -363,8 +363,7 @@ export async function deleteCustomAlgorithm(id: number, token?: string): Promise
       throw new Error(message);
     }
 
-    // Consume the response body to prevent hanging
-    await res.json();
+    // 204 No Content - no body to parse
   } catch (error) {
     handleNetworkError(error);
     throw error;
